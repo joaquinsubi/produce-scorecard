@@ -256,7 +256,14 @@ def chart_base(fig, height=None):
 
 @st.cache_data(ttl=300, show_spinner="Pulling latest data from Google Sheets…")
 def load_raw():
-    creds  = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=SCOPES)
+    # On Streamlit Cloud: reads from st.secrets["gcp_service_account"]
+    # Locally: falls back to the credentials file path
+    if "gcp_service_account" in st.secrets:
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]), scopes=SCOPES
+        )
+    else:
+        creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=SCOPES)
     client = gspread.authorize(creds)
     book   = client.open_by_key(SHEET_ID)
     wms_raw   = book.worksheet("WMS-Logged YTD").get_all_values()
