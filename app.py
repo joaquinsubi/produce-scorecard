@@ -19,6 +19,24 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── PASSWORD GATE ─────────────────────────────────────────────────────────────
+def check_password():
+    if st.session_state.get("authenticated"):
+        return True
+    st.markdown('<p class="hc-title" style="margin-bottom:8px">Produce Scorecard</p>', unsafe_allow_html=True)
+    pw = st.text_input("Password", type="password", placeholder="Enter team password")
+    if pw:
+        correct = st.secrets.get("app_password", "")
+        if pw == correct:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    return False
+
+if not check_password():
+    st.stop()
+
 # ── HOME CHEF DESIGN TOKENS ───────────────────────────────────────────────────
 HC_GREEN      = "#008600"
 HC_GREEN_DARK = "#006D00"
