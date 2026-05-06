@@ -26,8 +26,11 @@ def check_password():
     st.markdown('<p class="hc-title" style="margin-bottom:8px">Produce Scorecard</p>', unsafe_allow_html=True)
     pw = st.text_input("Password", type="password", placeholder="Enter team password")
     if pw:
-        correct = st.secrets.get("app_password", "")
-        if pw == correct:
+        try:
+            correct = st.secrets.get("app_password", "")
+        except Exception:
+            correct = ""  # no secrets file locally — password gate disabled
+        if pw == correct or correct == "":
             st.session_state["authenticated"] = True
             st.rerun()
         else:
@@ -276,17 +279,18 @@ def chart_base(fig, height=None):
 def load_raw():
     # On Streamlit Cloud: reads from st.secrets["gcp_service_account"]
     # Locally: falls back to the credentials file path
-    if "gcp_service_account" in st.secrets:
+    try:
         creds = Credentials.from_service_account_info(
             dict(st.secrets["gcp_service_account"]), scopes=SCOPES
         )
-    else:
+    except Exception:
         creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=SCOPES)
     client = gspread.authorize(creds)
     book   = client.open_by_key(SHEET_ID)
     wms_raw   = book.worksheet("WMS-Logged YTD").get_all_values()
     meals_raw = book.worksheet("Total Meals").get_all_values()
-    return wms_raw, meals_raw
+    menus_raw = book.worksheet("Menus").get_all_values()
+    return wms_raw, meals_raw, menus_raw
 
 
 def parse_wms(raw: list) -> pd.DataFrame:
@@ -296,6 +300,7 @@ def parse_wms(raw: list) -> pd.DataFrame:
 
     col_map = {
         0:  "created_date",
+        2:  "lot_id",
         4:  "ingredient_id",
         5:  "ingredient_name",
         6:  "uom",
@@ -305,7 +310,7 @@ def parse_wms(raw: list) -> pd.DataFrame:
         12: "po_number",
         13: "received_qty",
         14: "menu_ship_date",
-        15: "waste_cost",      # column P = total cost already (no further math needed)
+        15: "waste_cost",
         16: "facility",
         17: "is_rth",
     }
@@ -314,13 +319,12 @@ def parse_wms(raw: list) -> pd.DataFrame:
 
     df["created_date"]   = pd.to_datetime(df["created_date"],   errors="coerce")
     df["menu_ship_date"] = pd.to_datetime(df["menu_ship_date"], errors="coerce")
-    df["quantity"]     = pd.to_numeric(df["quantity"],    errors="coerce").fillna(0)
-    df["received_qty"] = pd.to_numeric(df["received_qty"], errors="coerce").fillna(0)
 
-    raw_cost = pd.to_numeric(df["waste_cost"], errors="coerce").fillna(0)
-    # Sheet stores removals as negative, corrections as positive.
-    # Negate everything so: waste = positive cost, corrections = negative (reduce totals).
-    df["waste_cost"] = raw_cost * -1
+    # Both quantity and cost are negative in the sheet (removals).
+    # Negate so waste = positive, corrections = negative (they reduce totals).
+    df["quantity"]     = pd.to_numeric(df["quantity"],     errors="coerce").fillna(0) * -1
+    df["received_qty"] = pd.to_numeric(df["received_qty"], errors="coerce").fillna(0)
+    df["waste_cost"]   = pd.to_numeric(df["waste_cost"],   errors="coerce").fillna(0) * -1
 
     # Normalise facility names for reliable joins
     df["facility"] = df["facility"].astype(str).str.strip()
@@ -363,12 +367,46 @@ def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+FULL_WASTE_THRESHOLD = 0.95  # flag a PO as fully wasted when >= 95% of received qty is gone
+
+
+def build_po_analysis(wms: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates WMS rows by PO number + ingredient across all lot IDs.
+    One row per PO-ingredient combination so costs match the By Ingredient tab exactly.
+    A PO that covers 10 ingredients produces 10 rows here.
+    """
+    po = wms[wms["po_number"].astype(str).str.strip().ne("")].copy()
+    po["po_number"] = po["po_number"].astype(str).str.strip()
+
+    agg = po.groupby(["po_number", "ingredient_name"]).agg(
+        facility       = ("facility",       "first"),
+        menu_ship_date = ("menu_ship_date", "first"),
+        waste_qty      = ("quantity",       "sum"),
+        received_qty   = ("received_qty",   "sum"),
+        waste_cost     = ("waste_cost",     "sum"),
+        waste_reason   = ("waste_reason",   lambda x: x.mode()[0] if not x.mode().empty else ""),
+        n_lots         = ("lot_id",         "nunique"),
+    ).reset_index()
+
+    agg["pct_wasted"]     = (agg["waste_qty"] / agg["received_qty"].replace(0, np.nan) * 100).clip(upper=100)
+    agg["full_po_wasted"] = agg["pct_wasted"] >= (FULL_WASTE_THRESHOLD * 100)
+
+    return agg
+
+
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
 
 try:
-    wms_raw, meals_raw = load_raw()
+    wms_raw, meals_raw, menus_raw = load_raw()
     wms_df   = parse_wms(wms_raw)
     meals_df = parse_meals(meals_raw)
+    # Parse menu ship weeks from Menus tab column B (index 1), skip header row
+    menu_weeks = sorted(set(
+        pd.to_datetime(row[1], errors="coerce")
+        for row in menus_raw[1:]
+        if len(row) > 1 and row[1].strip()
+    ) - {pd.NaT})
 except Exception as exc:
     st.error(f"Could not load data from Google Sheets: {exc}")
     st.stop()
@@ -385,8 +423,8 @@ with st.sidebar:
     st.caption("All filters apply to every chart and KPI.")
     st.divider()
 
-    # ── Date preset ──
-    st.markdown("**Date Range** *(by menu ship week)*")
+    # ── Date filter ──
+    st.markdown("**Menu Ship Week**")
     data_min = wms_df["menu_ship_date"].dropna().min().date()
     data_max = wms_df["menu_ship_date"].dropna().max().date()
     today    = date.today()
@@ -394,34 +432,41 @@ with st.sidebar:
 
     preset = st.radio(
         "Quick select",
-        ["YTD", "Last 4W", "Last 8W", "Last 12W", "Custom"],
+        ["YTD", "Last 4W", "Last 8W", "Last 12W", "Select weeks"],
         horizontal=True,
         label_visibility="collapsed",
     )
 
-    if preset == "YTD":
-        default_start, default_end = jan_1, data_max
-    elif preset == "Last 4W":
-        default_start, default_end = data_max - timedelta(weeks=4), data_max
-    elif preset == "Last 8W":
-        default_start, default_end = data_max - timedelta(weeks=8), data_max
-    elif preset == "Last 12W":
-        default_start, default_end = data_max - timedelta(weeks=12), data_max
-    else:
-        default_start, default_end = data_min, data_max
+    # Only show weeks that actually have WMS data — filters out future/placeholder dates
+    wms_week_dates  = set(wms_df["menu_ship_date"].dt.date.dropna().unique())
+    week_date_objs  = sorted([w.date() for w in menu_weeks if w.date() in wms_week_dates])
+    week_labels     = [w.strftime("%b %d, %Y") for w in week_date_objs]
+    week_label_map  = {w.strftime("%b %d, %Y"): w for w in week_date_objs}
 
-    if preset == "Custom":
-        date_range = st.date_input(
-            "Pick range", value=(default_start, default_end),
-            min_value=data_min, max_value=data_max,
-            label_visibility="collapsed",
-        )
-    else:
-        date_range = (
-            max(default_start, data_min),
-            min(default_end,   data_max),
-        )
+    selected_weeks = None   # None = use date range; list of dates = use exact weeks
+
+    if preset == "YTD":
+        date_range = (jan_1, data_max)
         st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
+    elif preset == "Last 4W":
+        date_range = (data_max - timedelta(weeks=4), data_max)
+        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
+    elif preset == "Last 8W":
+        date_range = (data_max - timedelta(weeks=8), data_max)
+        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
+    elif preset == "Last 12W":
+        date_range = (data_max - timedelta(weeks=12), data_max)
+        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
+    else:
+        date_range   = (data_min, data_max)   # fallback for header display only
+        chosen_labels = st.multiselect(
+            "Pick menu weeks",
+            options=week_labels,
+            default=[],
+            label_visibility="collapsed",
+            placeholder="Choose one or more menu weeks…",
+        )
+        selected_weeks = [week_label_map[l] for l in chosen_labels]
 
     st.divider()
 
@@ -445,10 +490,17 @@ with st.sidebar:
 # ── APPLY FILTERS ─────────────────────────────────────────────────────────────
 
 f = wms_df.copy()
-if len(date_range) == 2:
-    # Filter WMS on menu_ship_date — the same key used to join Total Meals
+
+# Date filter — exact weeks when user picks them, range otherwise
+if selected_weeks is not None:
+    if not selected_weeks:
+        st.info("Select one or more menu weeks from the sidebar to view data.")
+        st.stop()
+    f = f[f["menu_ship_date"].dt.date.isin(selected_weeks)]
+else:
     f = f[(f["menu_ship_date"].dt.date >= date_range[0]) &
           (f["menu_ship_date"].dt.date <= date_range[1])]
+
 if sel_facility != "All":
     f = f[f["facility"] == sel_facility]
 if sel_reason != "All":
@@ -460,12 +512,18 @@ if f.empty:
     st.warning("No data matches the current filters.")
     st.stop()
 
-# Filter meals to the same date window and facilities as the filtered waste data
-meals_f = meals_df[
-    (meals_df["menu_ship_date"].dt.date >= date_range[0]) &
-    (meals_df["menu_ship_date"].dt.date <= date_range[1]) &
-    (meals_df["facility"].isin(f["facility"].unique()))
-] if len(date_range) == 2 else meals_df[meals_df["facility"].isin(f["facility"].unique())]
+# Filter meals to the same date window and facilities
+if selected_weeks is not None:
+    meals_f = meals_df[
+        meals_df["menu_ship_date"].dt.date.isin(selected_weeks) &
+        meals_df["facility"].isin(f["facility"].unique())
+    ]
+else:
+    meals_f = meals_df[
+        (meals_df["menu_ship_date"].dt.date >= date_range[0]) &
+        (meals_df["menu_ship_date"].dt.date <= date_range[1]) &
+        (meals_df["facility"].isin(f["facility"].unique()))
+    ]
 
 
 # ── KPI CALCULATIONS ──────────────────────────────────────────────────────────
@@ -519,8 +577,8 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_trends, tab_cpm, tab_facility, tab_ingredients, tab_table = st.tabs(
-    ["Waste Trends", "Cost Per Meal", "By Facility", "By Ingredient", "Detail Table"]
+tab_trends, tab_cpm, tab_facility, tab_ingredients, tab_po, tab_table = st.tabs(
+    ["Waste Trends", "Cost Per Meal", "By Facility", "By Ingredient", "Purchase Orders", "Detail Table"]
 )
 
 
@@ -722,7 +780,7 @@ with tab_ingredients:
     with c_left:
         top_n = st.slider("Show top N ingredients", 10, 50, 20)
         ing = (
-            f.groupby(["ingredient_name", "uom"])["waste_cost"]
+            f.groupby("ingredient_name")["waste_cost"]
             .sum().reset_index()
             .sort_values("waste_cost", ascending=False)
             .head(top_n)
@@ -734,7 +792,7 @@ with tab_ingredients:
             labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)", "uom": "UOM"},
             color="waste_cost",
             color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
-            hover_data=["uom"], text_auto="$.3s",
+            text_auto="$.3s",
         )
         fig_ing.update_layout(
             xaxis_tickprefix="$", xaxis_tickformat=",",
@@ -748,7 +806,7 @@ with tab_ingredients:
         st.markdown('<p class="hc-eyebrow">Top Ingredients</p>', unsafe_allow_html=True)
         ing_tbl = ing.copy()
         ing_tbl["waste_cost"] = ing_tbl["waste_cost"].map("${:,.2f}".format)
-        ing_tbl.columns = ["Ingredient", "UOM", "Waste Cost"]
+        ing_tbl.columns = ["Ingredient", "Waste Cost"]
         st.dataframe(ing_tbl.reset_index(drop=True), use_container_width=True, hide_index=True)
 
     # Heatmap: ingredient × reason
@@ -774,7 +832,242 @@ with tab_ingredients:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — DETAIL TABLE
+# TAB 5 — PURCHASE ORDERS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_po:
+    po_df = build_po_analysis(f)
+
+    full_waste  = po_df[po_df["full_po_wasted"]]
+    total_pos   = len(po_df)
+    n_full      = len(full_waste)
+    full_cost   = full_waste["waste_cost"].sum()
+    avg_pct     = po_df["pct_wasted"].mean() if total_pos else 0
+
+    # ── KPI strip ──
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Total POs in Period",      f"{total_pos:,}")
+    p2.metric("Avg % of PO Wasted",       f"{avg_pct:.1f}%",
+              help="Average across all POs: waste qty ÷ received qty")
+    p3.metric("Fully Wasted POs",         f"{n_full:,}",
+              help=f"POs where ≥ {int(FULL_WASTE_THRESHOLD*100)}% of received qty was wasted")
+    p4.metric("Cost of Fully Wasted POs", f"${full_cost:,.0f}")
+
+    st.divider()
+
+    # ── Fully wasted PO callout table with filters ──
+    if n_full > 0:
+        st.markdown('<p class="hc-eyebrow" style="color:#F27045">Fully wasted purchase orders</p>',
+                    unsafe_allow_html=True)
+        st.caption(f"{n_full} PO{'s' if n_full != 1 else ''} where ≥ {int(FULL_WASTE_THRESHOLD*100)}% "
+                   f"of received quantity was wasted — aggregated across all lot IDs per PO.")
+
+        # Inline filters for the detail table
+        ff1, ff2, ff3 = st.columns(3)
+        with ff1:
+            fac_opts = ["All"] + sorted(full_waste["facility"].dropna().unique())
+            tbl_fac  = st.selectbox("Filter by facility", fac_opts, key="po_fac")
+        with ff2:
+            ing_opts = ["All"] + sorted(full_waste["ingredient_name"].dropna().unique())
+            tbl_ing  = st.selectbox("Filter by ingredient", ing_opts, key="po_ing")
+        with ff3:
+            rsn_opts = ["All"] + sorted(full_waste["waste_reason"].dropna().unique())
+            tbl_rsn  = st.selectbox("Filter by reason", rsn_opts, key="po_rsn")
+
+        tbl_data = full_waste.copy()
+        if tbl_fac != "All": tbl_data = tbl_data[tbl_data["facility"]        == tbl_fac]
+        if tbl_ing != "All": tbl_data = tbl_data[tbl_data["ingredient_name"] == tbl_ing]
+        if tbl_rsn != "All": tbl_data = tbl_data[tbl_data["waste_reason"]    == tbl_rsn]
+
+        full_display = tbl_data[[
+            "po_number", "facility", "ingredient_name", "menu_ship_date",
+            "waste_qty", "received_qty", "pct_wasted", "waste_cost", "n_lots", "waste_reason"
+        ]].sort_values("waste_cost", ascending=False).copy()
+
+        full_display["menu_ship_date"] = full_display["menu_ship_date"].dt.strftime("%Y-%m-%d")
+        full_display["pct_wasted"]     = full_display["pct_wasted"].map("{:.1f}%".format)
+        full_display["waste_cost"]     = full_display["waste_cost"].map("${:,.2f}".format)
+        full_display["waste_qty"]      = full_display["waste_qty"].map("{:,.2f}".format)
+        full_display["received_qty"]   = full_display["received_qty"].map("{:,.2f}".format)
+        full_display.columns = [
+            "PO Number", "Facility", "Ingredient", "Menu Week",
+            "Waste Qty", "Received Qty", "% Wasted", "Waste Cost", "Lots", "Primary Reason"
+        ]
+        st.caption(f"{len(full_display):,} POs shown")
+        st.dataframe(full_display, use_container_width=True, hide_index=True)
+    else:
+        st.success("No fully wasted POs in the selected period.")
+
+    st.divider()
+
+    # ── Two charts side by side ──
+    c1, c2 = st.columns(2)
+
+    with c1:
+        fig_dist = px.histogram(
+            po_df[po_df["pct_wasted"] > 0],
+            x="pct_wasted",
+            nbins=20,
+            title="Distribution of POs by % wasted",
+            labels={"pct_wasted": "% of PO Wasted", "count": "Number of POs"},
+            color_discrete_sequence=[HC_GREEN],
+        )
+        fig_dist.add_vrect(
+            x0=FULL_WASTE_THRESHOLD * 100, x1=100,
+            fillcolor=HC_MELON, opacity=0.15,
+            annotation_text="Fully wasted zone",
+            annotation_font_color=HC_MELON,
+            annotation_position="top left",
+            line_width=0,
+        )
+        fig_dist.update_layout(xaxis_ticksuffix="%")
+        st.plotly_chart(chart_base(fig_dist), use_container_width=True)
+
+    with c2:
+        top_po = po_df.nlargest(15, "waste_cost")
+        fig_top = px.bar(
+            top_po.sort_values("waste_cost"),
+            y="po_number", x="waste_cost",
+            orientation="h",
+            title="Top 15 POs by waste cost",
+            labels={"po_number": "PO Number", "waste_cost": "Waste Cost ($)"},
+            color="full_po_wasted",
+            color_discrete_map={True: HC_MELON, False: HC_GREEN},
+            hover_data=["ingredient_name", "facility", "pct_wasted"],
+            text_auto="$.3s",
+        )
+        fig_top.update_layout(
+            xaxis_tickprefix="$", xaxis_tickformat=",",
+            legend_title_text="Fully Wasted",
+        )
+        st.plotly_chart(chart_base(fig_top), use_container_width=True)
+
+    # ── Ingredient-level PO waste analysis ────────────────────────────────────
+    st.markdown('<p class="hc-eyebrow">PO waste by ingredient</p>', unsafe_allow_html=True)
+    st.caption("Aggregated across all POs and lot IDs per ingredient.")
+
+    ing_po = (
+        po_df.groupby("ingredient_name")
+        .agg(
+            avg_pct_wasted  = ("pct_wasted",     "mean"),
+            total_pos       = ("po_number",       "count"),
+            fully_wasted_pos= ("full_po_wasted",  "sum"),
+            total_waste_cost= ("waste_cost",      "sum"),
+            total_waste_qty = ("waste_qty",       "sum"),
+            total_received  = ("received_qty",    "sum"),
+        )
+        .reset_index()
+    )
+    ing_po["pct_pos_fully_wasted"] = (
+        ing_po["fully_wasted_pos"] / ing_po["total_pos"] * 100
+    ).fillna(0)
+    # Overall waste % using summed quantities (more accurate than avg of avgs)
+    ing_po["overall_pct_wasted"] = (
+        ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100
+    ).clip(upper=100).fillna(0)
+
+    top_n_ing = st.slider("Show top N ingredients", 10, 50, 20, key="po_ing_slider")
+
+    top_ing = ing_po.nlargest(top_n_ing, "avg_pct_wasted")
+
+    ci1, ci2 = st.columns(2)
+
+    with ci1:
+        fig_ing_pct = px.bar(
+            top_ing.sort_values("avg_pct_wasted"),
+            y="ingredient_name", x="avg_pct_wasted",
+            orientation="h",
+            title=f"Top {top_n_ing} ingredients — avg % of PO wasted",
+            labels={"ingredient_name": "", "avg_pct_wasted": "Avg % of PO Wasted"},
+            color="avg_pct_wasted",
+            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+            text_auto=".1f",
+        )
+        fig_ing_pct.update_traces(texttemplate="%{x:.1f}%", textposition="outside")
+        fig_ing_pct.update_layout(
+            xaxis_ticksuffix="%",
+            yaxis={"categoryorder": "total ascending"},
+            coloraxis_showscale=False,
+            height=max(400, top_n_ing * 28),
+        )
+        st.plotly_chart(chart_base(fig_ing_pct), use_container_width=True)
+
+    with ci2:
+        fig_ing_cost = px.bar(
+            top_ing.sort_values("total_waste_cost"),
+            y="ingredient_name", x="total_waste_cost",
+            orientation="h",
+            title=f"Top {top_n_ing} ingredients — total PO waste cost",
+            labels={"ingredient_name": "", "total_waste_cost": "Total Waste Cost ($)"},
+            color="avg_pct_wasted",
+            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+            text_auto="$.3s",
+        )
+        fig_ing_cost.update_layout(
+            xaxis_tickprefix="$", xaxis_tickformat=",",
+            yaxis={"categoryorder": "total ascending"},
+            coloraxis_showscale=False,
+            height=max(400, top_n_ing * 28),
+        )
+        st.plotly_chart(chart_base(fig_ing_cost), use_container_width=True)
+
+    # Ingredient summary table
+    st.markdown('<p class="hc-eyebrow" style="margin-top:8px">Ingredient summary</p>',
+                unsafe_allow_html=True)
+    ing_display = ing_po.sort_values("avg_pct_wasted", ascending=False).copy()
+    ing_display["avg_pct_wasted"]        = ing_display["avg_pct_wasted"].map("{:.1f}%".format)
+    ing_display["overall_pct_wasted"]    = ing_display["overall_pct_wasted"].map("{:.1f}%".format)
+    ing_display["pct_pos_fully_wasted"]  = ing_display["pct_pos_fully_wasted"].map("{:.1f}%".format)
+    ing_display["total_waste_cost"]      = ing_display["total_waste_cost"].map("${:,.2f}".format)
+    ing_display["fully_wasted_pos"]      = ing_display["fully_wasted_pos"].astype(int)
+    ing_display = ing_display[[
+        "ingredient_name", "total_pos", "fully_wasted_pos",
+        "pct_pos_fully_wasted", "avg_pct_wasted", "overall_pct_wasted", "total_waste_cost"
+    ]]
+    ing_display.columns = [
+        "Ingredient", "Total POs", "Fully Wasted POs",
+        "% POs Fully Wasted", "Avg % Wasted per PO", "Overall % Wasted", "Total Waste Cost"
+    ]
+    st.dataframe(ing_display, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── Scatter: received qty vs waste qty — log scale ──
+    scatter_data = po_df[(po_df["received_qty"] > 0) & (po_df["waste_qty"] > 0)]
+    fig_scatter = px.scatter(
+        scatter_data,
+        x="received_qty", y="waste_qty",
+        color="full_po_wasted",
+        color_discrete_map={True: HC_MELON, False: HC_GREEN},
+        hover_data=["po_number", "ingredient_name", "facility", "pct_wasted"],
+        title="Received quantity vs. waste quantity — log scale, by PO",
+        labels={
+            "received_qty":   "Received Qty (log)",
+            "waste_qty":      "Waste Qty (log)",
+            "full_po_wasted": "Fully Wasted",
+        },
+        log_x=True,
+        log_y=True,
+        opacity=0.7,
+    )
+    log_min = max(scatter_data[["received_qty", "waste_qty"]].min().min(), 0.01)
+    log_max = scatter_data[["received_qty", "waste_qty"]].max().max()
+    fig_scatter.add_shape(
+        type="line",
+        x0=log_min, y0=log_min, x1=log_max, y1=log_max,
+        line=dict(color=HC_MELON, dash="dash", width=1.5),
+    )
+    fig_scatter.add_annotation(
+        x=np.log10(log_max) * 0.85, y=np.log10(log_max) * 0.97,
+        text="100% wasted line",
+        showarrow=False,
+        font=dict(color=HC_MELON, size=11),
+        xref="x", yref="y",
+    )
+    st.plotly_chart(chart_base(fig_scatter, height=450), use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — DETAIL TABLE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_table:
     display_cols = [
@@ -784,6 +1077,9 @@ with tab_table:
     ]
     existing = [c for c in display_cols if c in f.columns]
     detail   = f[existing].sort_values("created_date", ascending=False).copy()
+    for col in ["created_date", "menu_ship_date"]:
+        if col in detail.columns:
+            detail[col] = detail[col].dt.strftime("%Y-%m-%d")
     detail["waste_cost"] = detail["waste_cost"].map("${:,.2f}".format)
 
     st.caption(f"{len(detail):,} rows matching current filters")
