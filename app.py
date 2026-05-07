@@ -140,10 +140,15 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] label {
     flex: 1; text-align: center;
     background: transparent !important;
     border-radius: 6px !important;
-    padding: 6px 4px !important;
+    padding: 6px 6px !important;
     font-size: 11px !important;
     font-weight: 600 !important;
     margin: 0 !important;
+    white-space: nowrap !important;
+    min-width: 0;
+}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+    white-space: nowrap !important;
 }
 section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
     background: #FEF9F5 !important;
@@ -465,36 +470,7 @@ if wms_df.empty:
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown(
-        '''
-        <div style="display:flex;align-items:center;gap:12px;padding:4px 0 12px">
-          <svg width="40" height="46" viewBox="0 0 40 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- House outline (pentagon, stroke only) -->
-            <path d="M20 2 L39 17 L39 44 L1 44 L1 17 Z"
-                  stroke="#FEF9F5" stroke-width="2.4" fill="none"
-                  stroke-linejoin="round" stroke-linecap="round"/>
-            <!-- Fork: 3 close tines -->
-            <line x1="12.5" y1="14" x2="12.5" y2="22" stroke="#FEF9F5" stroke-width="1.6" stroke-linecap="round"/>
-            <line x1="15"   y1="14" x2="15"   y2="22" stroke="#FEF9F5" stroke-width="1.6" stroke-linecap="round"/>
-            <line x1="17.5" y1="14" x2="17.5" y2="22" stroke="#FEF9F5" stroke-width="1.6" stroke-linecap="round"/>
-            <!-- Fork: shoulder arc connecting tines to handle -->
-            <path d="M12.5 22 C12.5 26 17.5 26 17.5 22"
-                  stroke="#FEF9F5" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-            <!-- Fork: handle -->
-            <line x1="15" y1="26" x2="15" y2="39" stroke="#FEF9F5" stroke-width="1.6" stroke-linecap="round"/>
-            <!-- Knife: narrow blade tapering to a point at top, handle at bottom -->
-            <path d="M23.5 39 L23.5 24 Q25.5 12 27.5 24 L27.5 39"
-                  stroke="#FEF9F5" stroke-width="1.6" fill="none"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <div>
-            <div style="font-family:'Karla',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(254,249,245,0.5);margin-bottom:2px">Home Chef</div>
-            <div style="font-family:'Bree Serif',Georgia,serif;font-size:17px;color:#FEF9F5;line-height:1.1;letter-spacing:-0.01em">Produce Scorecard</div>
-          </div>
-        </div>
-        ''',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### Produce Scorecard")
     st.caption("All filters apply to every chart and KPI.")
     st.divider()
 
