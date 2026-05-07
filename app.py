@@ -55,8 +55,8 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
 }
 .hc-title {
     font-family: 'Bree Serif', Georgia, serif;
-    font-size: 40px; line-height: 1.05;
-    color: #1A1A1A; margin: 0; letter-spacing: -0.01em;
+    font-size: 52px; line-height: 1.0;
+    color: #1A1A1A; margin: 0; letter-spacing: -0.02em;
 }
 .hc-eyebrow {
     font-family: 'Karla',sans-serif;
@@ -150,6 +150,10 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked
 }
 section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
     color: #0B355A !important;
+}
+/* Hide radio circle indicator — turns it into a segmented pill control */
+section[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] {
+    display: none !important;
 }
 section[data-testid="stSidebar"] .stButton button {
     background: #008600 !important;
@@ -458,7 +462,22 @@ if wms_df.empty:
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("### Produce Scorecard")
+    st.markdown(
+        '''
+        <div style="display:flex;align-items:center;gap:12px;padding:4px 0 12px">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="36" height="36" rx="8" fill="rgba(254,249,245,0.12)"/>
+            <path d="M18 6L5 16.5H9V29H15.5V21.5H20.5V29H27V16.5H31L18 6Z" fill="#FEF9F5"/>
+            <rect x="15" y="21" width="6" height="8" rx="1" fill="#0B355A"/>
+          </svg>
+          <div>
+            <div style="font-family:'Karla',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(254,249,245,0.5);margin-bottom:2px">Home Chef</div>
+            <div style="font-family:'Bree Serif',Georgia,serif;font-size:17px;color:#FEF9F5;line-height:1.1;letter-spacing:-0.01em">Produce Scorecard</div>
+          </div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
     st.caption("All filters apply to every chart and KPI.")
     st.divider()
 
@@ -591,8 +610,8 @@ else:
     cost_delta_pct = np.nan
 
 if not np.isnan(cost_delta_pct):
-    direction       = "down" if cost_delta_pct < 0 else "up"
-    cost_delta_str  = f"{direction} {abs(cost_delta_pct):.1f}% vs prior period"
+    arrow           = "↓" if cost_delta_pct < 0 else "↑"
+    cost_delta_str  = f"{arrow} {abs(cost_delta_pct):.1f}% vs prior period"
     cost_delta_good = cost_delta_pct < 0
 else:
     cost_delta_str  = None
