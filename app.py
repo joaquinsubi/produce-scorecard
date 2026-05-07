@@ -90,7 +90,7 @@ hr { border-color: #E6E0D8 !important; margin: 20px 0 !important; }
     background: #FFFFFF;
     border: 1px solid #E6E0D8;
     border-radius: 16px;
-    padding: 16px 16px 10px;
+    overflow: hidden;
     box-shadow: 0 1px 3px rgba(11,53,90,0.05);
 }
 
@@ -272,7 +272,7 @@ def chart_base(fig, height=None):
             bgcolor="#FFFFFF", bordercolor="#E6E0D8",
             font=dict(color="#1A1A1A", family="'Karla',sans-serif", size=12),
         ),
-        margin=dict(t=56, b=36, l=8, r=12),
+        margin=dict(t=48, b=28, l=52, r=24),
     )
     if height:
         layout["height"] = height
@@ -470,7 +470,7 @@ with st.sidebar:
 
     preset = st.radio(
         "Quick select",
-        ["YTD", "Last 4W", "Last 8W", "Last 12W", "Select weeks"],
+        ["YTD", "4W", "8W", "12W", "Pick"],
         horizontal=True,
         label_visibility="collapsed",
     )
@@ -485,13 +485,13 @@ with st.sidebar:
     if preset == "YTD":
         date_range = (jan_1, data_max)
         st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
-    elif preset == "Last 4W":
+    elif preset == "4W":
         date_range = (data_max - timedelta(weeks=4), data_max)
         st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
-    elif preset == "Last 8W":
+    elif preset == "8W":
         date_range = (data_max - timedelta(weeks=8), data_max)
         st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
-    elif preset == "Last 12W":
+    elif preset == "12W":
         date_range = (data_max - timedelta(weeks=12), data_max)
         st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
     else:
