@@ -339,10 +339,11 @@ def load_raw():
         creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=SCOPES)
     client = gspread.authorize(creds)
     book   = client.open_by_key(SHEET_ID)
-    wms_raw   = book.worksheet("WMS-Logged YTD").get_all_values()
-    meals_raw = book.worksheet("Total Meals").get_all_values()
-    menus_raw = book.worksheet("Menus").get_all_values()
-    return wms_raw, meals_raw, menus_raw
+    wms_raw    = book.worksheet("WMS-Logged YTD").get_all_values()
+    meals_raw  = book.worksheet("Total Meals").get_all_values()
+    menus_raw  = book.worksheet("Menus").get_all_values()
+    shorts_raw = book.worksheet("Shorts Logs").get_all_values()
+    return wms_raw, meals_raw, menus_raw, shorts_raw
 
 
 def parse_wms(raw: list) -> pd.DataFrame:
@@ -400,6 +401,35 @@ def parse_meals(raw: list) -> pd.DataFrame:
     return df.dropna(subset=["menu_ship_date"])
 
 
+def parse_shorts(raw: list) -> pd.DataFrame:
+    if len(raw) < 2:
+        return pd.DataFrame()
+    df = pd.DataFrame(raw[1:])
+
+    col_map = {
+        2:  "facility",
+        4:  "menu_ship_week",
+        6:  "shorted_ingredient",
+        7:  "short_reason",
+        11: "brand",
+        23: "category",
+    }
+    valid = {k: v for k, v in col_map.items() if k < df.shape[1]}
+    df    = df.rename(columns=valid)[list(valid.values())]
+
+    df["menu_ship_week"]     = pd.to_datetime(df["menu_ship_week"], errors="coerce")
+    df["facility"]           = df["facility"].astype(str).str.strip()
+    df["shorted_ingredient"] = df["shorted_ingredient"].astype(str).str.strip()
+    df["short_reason"]       = df["short_reason"].astype(str).str.strip()
+    df["category"]           = df["category"].astype(str).str.strip()
+    df["week"]               = df["menu_ship_week"].dt.to_period("W").dt.start_time
+
+    # Only produce shorts
+    df = df[df["category"].str.lower() == "produce"]
+
+    return df.dropna(subset=["menu_ship_week"])
+
+
 def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
     """
     Joins WMS waste and Total Meals on facility + menu_ship_date (exact match).
@@ -438,9 +468,10 @@ def build_po_analysis(wms: pd.DataFrame) -> pd.DataFrame:
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
 
 try:
-    wms_raw, meals_raw, menus_raw = load_raw()
-    wms_df   = parse_wms(wms_raw)
-    meals_df = parse_meals(meals_raw)
+    wms_raw, meals_raw, menus_raw, shorts_raw = load_raw()
+    wms_df    = parse_wms(wms_raw)
+    meals_df  = parse_meals(meals_raw)
+    shorts_df = parse_shorts(shorts_raw)
     menu_weeks = sorted(set(
         pd.to_datetime(row[1], errors="coerce")
         for row in menus_raw[1:]
@@ -561,6 +592,20 @@ else:
         (meals_df["facility"].isin(f["facility"].unique()))
     ]
 
+# Shorts: apply date + facility filters only (no waste reason / RTH)
+if not shorts_df.empty:
+    if selected_weeks is not None:
+        shorts_f = shorts_df[shorts_df["menu_ship_week"].dt.date.isin(selected_weeks)]
+    else:
+        shorts_f = shorts_df[
+            (shorts_df["menu_ship_week"].dt.date >= date_range[0]) &
+            (shorts_df["menu_ship_week"].dt.date <= date_range[1])
+        ]
+    if sel_facility != "All":
+        shorts_f = shorts_f[shorts_f["facility"] == sel_facility]
+else:
+    shorts_f = shorts_df.copy()
+
 
 # ── KPI CALCULATIONS ──────────────────────────────────────────────────────────
 
@@ -664,8 +709,8 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_trends, tab_cpm, tab_facility, tab_ingredients, tab_po, tab_table = st.tabs(
-    ["Waste Trends", "Cost Per Meal", "By Facility", "By Ingredient", "Purchase Orders", "Detail Table"]
+tab_trends, tab_cpm, tab_facility, tab_ingredients, tab_po, tab_shorts, tab_table = st.tabs(
+    ["Waste Trends", "Cost Per Meal", "By Facility", "By Ingredient", "Purchase Orders", "Shorts Log", "Detail Table"]
 )
 
 
@@ -1204,7 +1249,155 @@ with tab_po:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — DETAIL TABLE
+# TAB 6 — SHORTS LOG
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_shorts:
+    if shorts_f.empty:
+        st.info("No produce shorts found for the selected period and filters.")
+    else:
+        # ── KPI cards ────────────────────────────────────────────────────────
+        total_shorts    = len(shorts_f)
+        top_short_ing   = shorts_f["shorted_ingredient"].mode()[0] if total_shorts else "—"
+        top_short_rsn   = shorts_f["short_reason"].mode()[0] if total_shorts else "—"
+        facs_affected   = shorts_f["facility"].nunique()
+
+        sk1, sk2, sk3, sk4 = st.columns(4)
+        with sk1:
+            st.markdown(kpi_card("Total Produce Shorts", f"{total_shorts:,}"), unsafe_allow_html=True)
+        with sk2:
+            st.markdown(kpi_card("Most Shorted Ingredient", top_short_ing), unsafe_allow_html=True)
+        with sk3:
+            st.markdown(kpi_card("Top Short Reason", top_short_rsn), unsafe_allow_html=True)
+        with sk4:
+            st.markdown(kpi_card("Facilities Affected", f"{facs_affected}"), unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── Row 1: top ingredients + reason breakdown ─────────────────────
+        r1a, r1b = st.columns(2)
+
+        with r1a:
+            top_n_s = st.slider("Show top N ingredients", 10, 50, 20, key="shorts_ing_slider")
+            ing_counts = (
+                shorts_f.groupby("shorted_ingredient")
+                .size().reset_index(name="shorts")
+                .sort_values("shorts", ascending=False)
+                .head(top_n_s)
+            )
+            fig_sing = px.bar(
+                ing_counts.sort_values("shorts"),
+                y="shorted_ingredient", x="shorts",
+                orientation="h",
+                title=f"Top {top_n_s} most shorted produce ingredients",
+                labels={"shorted_ingredient": "", "shorts": "Short count"},
+                color="shorts",
+                color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
+                text_auto=True,
+            )
+            fig_sing.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                coloraxis_showscale=False,
+                height=max(400, top_n_s * 28),
+            )
+            st.plotly_chart(chart_base(fig_sing), use_container_width=True)
+
+        with r1b:
+            rsn_counts = (
+                shorts_f.groupby("short_reason")
+                .size().reset_index(name="shorts")
+                .sort_values("shorts", ascending=False)
+            )
+            fig_srsn = px.bar(
+                rsn_counts,
+                x="short_reason", y="shorts",
+                title="Short count by reason",
+                labels={"short_reason": "Reason", "shorts": "Short count"},
+                color="short_reason",
+                color_discrete_sequence=HC_PALETTE,
+                text_auto=True,
+            )
+            fig_srsn.update_layout(showlegend=False, xaxis_title=None)
+            st.plotly_chart(chart_base(fig_srsn), use_container_width=True)
+
+        # ── Weekly trend ──────────────────────────────────────────────────
+        section_head("Over time", "Weekly produce shorts")
+        wk_shorts = shorts_f.groupby("week").size().reset_index(name="shorts")
+        fig_swk = px.line(
+            wk_shorts, x="week", y="shorts",
+            title="Weekly produce short count",
+            labels={"week": "Week of", "shorts": "Short count"},
+            markers=True, color_discrete_sequence=[HC_MELON],
+        )
+        fig_swk.update_traces(
+            line_width=2,
+            marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
+        )
+        st.plotly_chart(chart_base(fig_swk), use_container_width=True)
+
+        # ── Reason × facility heatmap ─────────────────────────────────────
+        section_head("By facility", "Short reason breakdown per site")
+        heat_s = (
+            shorts_f.groupby(["facility", "short_reason"])
+            .size().unstack(fill_value=0)
+        )
+        if not heat_s.empty:
+            fig_sheat = px.imshow(
+                heat_s,
+                title="Short count — facility by reason",
+                labels={"x": "Reason", "y": "Facility", "color": "Shorts"},
+                color_continuous_scale=[[0, "#FFFFFF"], [0.5, HC_LEMON], [1, HC_MELON]],
+                aspect="auto",
+                text_auto=True,
+            )
+            fig_sheat.update_layout(
+                height=max(320, len(heat_s) * 44 + 80),
+                coloraxis_colorbar=dict(title="Shorts"),
+            )
+            st.plotly_chart(chart_base(fig_sheat), use_container_width=True)
+
+        # ── Shorts vs waste cost correlation ──────────────────────────────
+        section_head("Correlation", "Shorts vs waste cost by week")
+        st.caption(
+            "Each point is one facility-week. Weeks with more shorts trending "
+            "toward higher waste cost suggest a supply disruption signal."
+        )
+        shorts_by_wk = (
+            shorts_f.groupby(["facility", "week"])
+            .size().reset_index(name="short_count")
+        )
+        waste_by_wk = (
+            f.groupby(["facility", "week"])["waste_cost"]
+            .sum().reset_index()
+        )
+        corr_df = shorts_by_wk.merge(waste_by_wk, on=["facility", "week"], how="inner")
+
+        if not corr_df.empty:
+            fig_corr = px.scatter(
+                corr_df,
+                x="short_count", y="waste_cost",
+                color="facility",
+                color_discrete_sequence=HC_PALETTE,
+                hover_data=["facility", "week", "short_count", "waste_cost"],
+                title="Weekly shorts vs waste cost — by facility",
+                labels={
+                    "short_count": "Produce shorts (count)",
+                    "waste_cost":  "Waste cost ($)",
+                    "facility":    "Facility",
+                },
+                trendline="ols",
+                opacity=0.75,
+            )
+            fig_corr.update_layout(
+                yaxis_tickprefix="$", yaxis_tickformat=",",
+                height=460,
+            )
+            st.plotly_chart(chart_base(fig_corr), use_container_width=True)
+        else:
+            st.info("Not enough overlapping weeks between shorts and waste data to plot correlation.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — DETAIL TABLE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_table:
     # Toolbar: full-text search + column filters
