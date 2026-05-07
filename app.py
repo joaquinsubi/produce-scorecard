@@ -465,10 +465,25 @@ with st.sidebar:
     st.markdown(
         '''
         <div style="display:flex;align-items:center;gap:12px;padding:4px 0 12px">
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="36" height="36" rx="8" fill="rgba(254,249,245,0.12)"/>
-            <path d="M18 6L5 16.5H9V29H15.5V21.5H20.5V29H27V16.5H31L18 6Z" fill="#FEF9F5"/>
-            <rect x="15" y="21" width="6" height="8" rx="1" fill="#0B355A"/>
+          <svg width="40" height="46" viewBox="0 0 40 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- House outline (pentagon, stroke only — matches HC logo) -->
+            <path d="M20 2 L39 17 L39 44 L1 44 L1 17 Z"
+                  stroke="#FEF9F5" stroke-width="2.4" fill="none"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- Fork: 3 tines -->
+            <line x1="13" y1="15" x2="13" y2="23" stroke="#FEF9F5" stroke-width="1.8" stroke-linecap="round"/>
+            <line x1="16" y1="15" x2="16" y2="23" stroke="#FEF9F5" stroke-width="1.8" stroke-linecap="round"/>
+            <line x1="19" y1="15" x2="19" y2="23" stroke="#FEF9F5" stroke-width="1.8" stroke-linecap="round"/>
+            <!-- Fork: curved base joining tines -->
+            <path d="M13 23 Q16 28 19 23" stroke="#FEF9F5" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <!-- Fork: handle -->
+            <line x1="16" y1="28" x2="16" y2="40" stroke="#FEF9F5" stroke-width="1.8" stroke-linecap="round"/>
+            <!-- Knife: blade (slightly tapered) -->
+            <path d="M24 15 L27 15 L27 26 Q25.5 28 24 26 Z"
+                  stroke="#FEF9F5" stroke-width="1.6" fill="none"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- Knife: handle -->
+            <line x1="25.5" y1="28" x2="25.5" y2="40" stroke="#FEF9F5" stroke-width="1.8" stroke-linecap="round"/>
           </svg>
           <div>
             <div style="font-family:'Karla',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(254,249,245,0.5);margin-bottom:2px">Home Chef</div>
