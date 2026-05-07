@@ -11,10 +11,11 @@ import numpy as np
 CREDENTIALS_PATH = "/Users/joaquinsubijana/Downloads/produce-scorecard-36234099db1a.json"
 SHEET_ID         = "1srGhRlY2Zk6r7fCnOcFsrCVfermL_gN5J47nqQEFhjg"
 SCOPES           = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+FULL_WASTE_THRESHOLD = 0.95
 
 st.set_page_config(
     page_title="Produce Scorecard — Home Chef",
-    page_icon="https://i.imgur.com/placeholder.png",
+    page_icon="🌿",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -33,20 +34,19 @@ HC_GRAY       = "#4A4A4A"
 HC_BORDER     = "#E6E0D8"
 HC_MUTED      = "#7A7A7A"
 
-# Qualitative chart palette — HC brand colors in order
 HC_PALETTE = [HC_GREEN, HC_MELON, HC_BLUEBERRY, "#00809C", HC_ORANGE, HC_GRAPE, HC_LEMON, HC_WATER]
 
-# ── GLOBAL STYLES (Direction A — Editorial Ops) ───────────────────────────────
+# ── GLOBAL STYLES ─────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bree+Serif&family=Karla:wght@400;600;700;800&family=Work+Sans:wght@400;600;700&display=swap');
 
-/* ── Page background & type baseline ── */
+/* ── page ── */
 .stApp, .main .block-container { background: #FEF9F5 !important; }
 .main .block-container { padding-top: 2.5rem; padding-bottom: 4rem; max-width: 1480px; }
 html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-serif; color: #4A4A4A; }
 
-/* ── Page header ── */
+/* ── custom HTML elements ── */
 .hc-eyebrow-green {
     font-family: 'Karla',sans-serif;
     font-size: 11px; font-weight: 700;
@@ -64,53 +64,37 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
     letter-spacing: 0.14em; text-transform: uppercase;
     color: #7A7A7A; margin: 10px 0 0;
 }
-.hc-eyebrow .dot {
-    display: inline-block; width: 3px; height: 3px;
-    border-radius: 50%; background: currentColor; opacity: 0.5;
-    vertical-align: middle; margin: 0 10px;
+.hc-section-head {
+    border-top: 1px solid #E6E0D8;
+    padding-top: 28px;
+    margin-top: 36px;
+    margin-bottom: 16px;
+}
+.hc-section-head__eyebrow {
+    font-family: 'Karla',sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: #008600; margin: 0 0 4px;
+}
+.hc-section-head__title {
+    font-family: 'Bree Serif', Georgia, serif;
+    font-size: 22px; line-height: 1.15;
+    color: #1A1A1A; margin: 0;
 }
 
-/* Stronger horizontal rule under the header */
-.main hr:first-of-type { border-color: #E6E0D8 !important; margin: 24px 0 28px !important; }
-hr { border-color: #E6E0D8 !important; margin: 16px 0 !important; }
+/* ── dividers ── */
+hr { border-color: #E6E0D8 !important; margin: 20px 0 !important; }
 
-/* ── KPI metric cards (st.metric) ── */
-[data-testid="metric-container"] {
+/* ── Plotly chart wrappers — card treatment ── */
+[data-testid="stPlotlyChart"] {
     background: #FFFFFF;
     border: 1px solid #E6E0D8;
     border-radius: 16px;
-    padding: 20px 22px 18px;
-    box-shadow: 0 1px 2px rgba(11,53,90,0.04);
-    transition: box-shadow 140ms cubic-bezier(0.22,0.61,0.36,1);
-    min-height: 134px;
+    padding: 16px 16px 10px;
+    box-shadow: 0 1px 3px rgba(11,53,90,0.05);
 }
-[data-testid="metric-container"]:hover {
-    box-shadow: 0 6px 16px rgba(11,53,90,0.08);
-}
-[data-testid="stMetricLabel"] {
-    font-family: 'Karla',sans-serif !important;
-    font-size: 10.5px !important; font-weight: 700 !important;
-    letter-spacing: 0.14em !important; text-transform: uppercase !important;
-    color: #7A7A7A !important;
-}
-[data-testid="stMetricValue"] {
-    font-family: 'Bree Serif', Georgia, serif !important;
-    font-size: 32px !important; line-height: 1 !important;
-    color: #1A1A1A !important; letter-spacing: -0.01em;
-    margin-top: 8px;
-}
-[data-testid="stMetricDelta"] {
-    font-family: 'Karla',sans-serif !important;
-    font-size: 11px !important; font-weight: 700 !important;
-    letter-spacing: 0.04em;
-    margin-top: 6px !important;
-    padding: 3px 8px; border-radius: 999px;
-    background: rgba(0,134,0,0.10); color: #008600 !important;
-    display: inline-block; width: fit-content;
-}
-[data-testid="stMetricDelta"] svg { display: none; }
 
-/* ── Sidebar — blueberry control rail ── */
+/* ── sidebar — blueberry control rail ── */
 section[data-testid="stSidebar"] {
     background: #0B355A !important;
     padding-top: 1.5rem;
@@ -128,7 +112,10 @@ section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
     color: rgba(254,249,245,0.6) !important;
     font-size: 11px !important;
 }
-section[data-testid="stSidebar"] hr { border-color: rgba(254,249,245,0.14) !important; margin: 14px 0 !important; }
+section[data-testid="stSidebar"] hr {
+    border-color: rgba(254,249,245,0.14) !important;
+    margin: 14px 0 !important;
+}
 section[data-testid="stSidebar"] strong,
 section[data-testid="stSidebar"] p strong {
     font-family: 'Karla',sans-serif !important;
@@ -138,7 +125,7 @@ section[data-testid="stSidebar"] p strong {
 }
 section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
     background: rgba(254,249,245,0.08) !important;
-    border: 1px solid rgba(254,249,245,0.18) !important;
+    border: 1px solid rgba(254,249,245,0.2) !important;
     border-radius: 8px !important;
     color: #FEF9F5 !important;
     font-size: 13px;
@@ -160,7 +147,6 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] label {
 }
 section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
     background: #FEF9F5 !important;
-    color: #0B355A !important;
 }
 section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
     color: #0B355A !important;
@@ -176,7 +162,7 @@ section[data-testid="stSidebar"] .stButton button {
 }
 section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !important; }
 
-/* ── Tabs ── */
+/* ── tabs ── */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
     border-bottom: 1.5px solid #E6E0D8;
@@ -202,35 +188,15 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
     background: transparent !important;
 }
 
-/* ── Plotly chart wrappers as cards ── */
-[data-testid="stPlotlyChart"] {
-    background: #fff;
-    border: 1px solid #E6E0D8;
-    border-radius: 16px;
-    padding: 18px 18px 12px;
-    box-shadow: 0 1px 2px rgba(11,53,90,0.04);
-}
-
-/* ── Dataframes — table redesign ── */
+/* ── dataframes ── */
 [data-testid="stDataFrame"] {
     border: 1px solid #E6E0D8 !important;
     border-radius: 16px !important;
     overflow: hidden;
     background: #fff;
 }
-[data-testid="stDataFrame"] [role="columnheader"] {
-    background: #FEF9F5 !important;
-    font-family: 'Karla',sans-serif !important;
-    font-size: 10.5px !important; font-weight: 700 !important;
-    letter-spacing: 0.12em !important; text-transform: uppercase !important;
-    color: #7A7A7A !important;
-    border-bottom: 1.5px solid #E6E0D8 !important;
-}
-[data-testid="stDataFrame"] [role="row"]:hover [role="cell"] {
-    background: rgba(0,134,0,0.025) !important;
-}
 
-/* ── Buttons (download + ghost) ── */
+/* ── download button ── */
 .stDownloadButton button {
     background: transparent !important;
     color: #008600 !important;
@@ -243,29 +209,10 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 }
 .stDownloadButton button:hover { background: #008600 !important; color: #fff !important; }
 
-/* ── Section headers ── */
-.hc-section-head {
-    border-top: 1px solid #E6E0D8;
-    padding-top: 28px;
-    margin-top: 36px;
-    margin-bottom: 16px;
-}
-.hc-section-head__eyebrow {
-    font-family: 'Karla',sans-serif;
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.14em; text-transform: uppercase;
-    color: #008600; margin: 0 0 4px;
-}
-.hc-section-head__title {
-    font-family: 'Bree Serif', Georgia, serif;
-    font-size: 22px; line-height: 1.15;
-    color: #1A1A1A; margin: 0; letter-spacing: -0.005em;
-}
-
-/* ── Alerts ── */
+/* ── alerts ── */
 [data-testid="stAlert"] { border-radius: 12px !important; }
 
-/* ── Sliders ── */
+/* ── slider ── */
 [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] { background: #008600 !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -281,7 +228,7 @@ def check_password():
         try:
             correct = st.secrets.get("app_password", "")
         except Exception:
-            correct = ""  # no secrets file locally — password gate disabled
+            correct = ""
         if pw == correct or correct == "":
             st.session_state["authenticated"] = True
             st.rerun()
@@ -295,29 +242,28 @@ if not check_password():
 
 # ── CHART BASE ────────────────────────────────────────────────────────────────
 def chart_base(fig, height=None):
-    """Apply Home Chef Direction-A styling to any Plotly figure."""
+    """Apply Home Chef brand styling to any Plotly figure."""
     layout = dict(
-        font=dict(family="'Karla','Work Sans',sans-serif", size=12, color="#4A4A4A"),
+        font=dict(family="'Karla','Work Sans',sans-serif", size=12, color=HC_GRAY),
         plot_bgcolor="#FFFFFF",
         paper_bgcolor="#FFFFFF",
         title=dict(
-            font=dict(size=15, color="#1A1A1A",
-                      family="'Bree Serif',Georgia,serif"),
-            x=0, xanchor="left", y=0.96, pad=dict(t=2, l=2),
+            font=dict(size=15, color="#1A1A1A", family="'Bree Serif',Georgia,serif"),
+            x=0, xanchor="left", y=0.97, pad=dict(t=2, l=4),
         ),
         xaxis=dict(
             gridcolor="#EEE8DD", linecolor="#E6E0D8", zeroline=False,
-            tickfont=dict(color="#8A8A8A", family="'Karla',sans-serif", size=11),
-            title_font=dict(color="#7A7A7A", size=11),
+            tickfont=dict(color=HC_MUTED, family="'Karla',sans-serif", size=11),
+            title_font=dict(color=HC_MUTED, size=11),
         ),
         yaxis=dict(
             gridcolor="#EEE8DD", linecolor="#E6E0D8", zeroline=False,
-            tickfont=dict(color="#8A8A8A", family="'Karla',sans-serif", size=11),
-            title_font=dict(color="#7A7A7A", size=11),
+            tickfont=dict(color=HC_MUTED, family="'Karla',sans-serif", size=11),
+            title_font=dict(color=HC_MUTED, size=11),
         ),
         legend=dict(
-            font=dict(color="#4A4A4A", family="'Karla',sans-serif", size=11),
-            bgcolor="rgba(254,249,245,0.0)",
+            font=dict(color=HC_GRAY, family="'Karla',sans-serif", size=11),
+            bgcolor="rgba(0,0,0,0)",
             bordercolor="rgba(0,0,0,0)", borderwidth=0,
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
         ),
@@ -326,7 +272,7 @@ def chart_base(fig, height=None):
             bgcolor="#FFFFFF", bordercolor="#E6E0D8",
             font=dict(color="#1A1A1A", family="'Karla',sans-serif", size=12),
         ),
-        margin=dict(t=52, b=36, l=8, r=12),
+        margin=dict(t=56, b=36, l=8, r=12),
     )
     if height:
         layout["height"] = height
@@ -335,15 +281,49 @@ def chart_base(fig, height=None):
 
 
 def section_head(eyebrow: str, title: str):
-    """Eyebrow + Bree Serif title above a section."""
+    """Renders a ruled section header with HC eyebrow + Bree Serif title."""
     st.markdown(
-        f'''
-        <div class="hc-section-head">
-          <p class="hc-section-head__eyebrow">{eyebrow}</p>
-          <h2 class="hc-section-head__title">{title}</h2>
-        </div>
-        ''',
+        f'<div class="hc-section-head">'
+        f'<p class="hc-section-head__eyebrow">{eyebrow}</p>'
+        f'<h2 class="hc-section-head__title">{title}</h2>'
+        f'</div>',
         unsafe_allow_html=True,
+    )
+
+
+def kpi_card(label: str, value: str, delta: str = None,
+             delta_positive: bool = None, help_text: str = None) -> str:
+    """
+    Returns HTML for a branded KPI card.
+    Render with st.markdown(..., unsafe_allow_html=True) inside a column.
+    delta_positive=True  → green badge
+    delta_positive=False → melon badge
+    delta_positive=None  → gray badge
+    """
+    delta_html = ""
+    if delta and delta not in ("—", ""):
+        if delta_positive is True:
+            bg, fg = "rgba(0,134,0,0.12)", HC_GREEN
+        elif delta_positive is False:
+            bg, fg = "rgba(242,112,69,0.12)", HC_MELON
+        else:
+            bg, fg = "rgba(74,74,74,0.08)", HC_MUTED
+        delta_html = (
+            f'<div style="margin-top:10px;display:inline-block;padding:3px 10px;'
+            f'border-radius:999px;background:{bg};font-family:Karla,sans-serif;'
+            f'font-size:11px;font-weight:700;color:{fg};letter-spacing:0.03em">{delta}</div>'
+        )
+    title_attr = f' title="{help_text}"' if help_text else ""
+    return (
+        f'<div{title_attr} style="background:#FFFFFF;border:1px solid {HC_BORDER};border-radius:16px;'
+        f'padding:22px 24px 20px;box-shadow:0 1px 3px rgba(11,53,90,0.06);'
+        f'min-height:128px;height:100%">'
+        f'<div style="font-family:Karla,sans-serif;font-size:10.5px;font-weight:700;'
+        f'letter-spacing:0.14em;text-transform:uppercase;color:{HC_MUTED};margin-bottom:10px">{label}</div>'
+        f'<div style="font-family:\'Bree Serif\',Georgia,serif;font-size:32px;line-height:1;'
+        f'color:#1A1A1A;letter-spacing:-0.01em">{value}</div>'
+        f'{delta_html}'
+        f'</div>'
     )
 
 
@@ -351,8 +331,6 @@ def section_head(eyebrow: str, title: str):
 
 @st.cache_data(ttl=300, show_spinner="Pulling latest data from Google Sheets…")
 def load_raw():
-    # On Streamlit Cloud: reads from st.secrets["gcp_service_account"]
-    # Locally: falls back to the credentials file path
     try:
         creds = Credentials.from_service_account_info(
             dict(st.secrets["gcp_service_account"]), scopes=SCOPES
@@ -401,7 +379,7 @@ def parse_wms(raw: list) -> pd.DataFrame:
     df["waste_cost"]   = pd.to_numeric(df["waste_cost"],   errors="coerce").fillna(0) * -1
 
     df["facility"] = df["facility"].astype(str).str.strip()
-    df["week"] = df["menu_ship_date"].dt.to_period("W").dt.start_time
+    df["week"]     = df["menu_ship_date"].dt.to_period("W").dt.start_time
 
     return df.dropna(subset=["created_date"])
 
@@ -424,20 +402,16 @@ def parse_meals(raw: list) -> pd.DataFrame:
 
 def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
     """
-    Joins WMS waste and Total Meals on facility + menu_ship_date (exact match —
-    both sheets use the same weekly date as their key).
+    Joins WMS waste and Total Meals on facility + menu_ship_date (exact match).
     CPM = waste_cost / total_meals at that grain.
     """
     waste_by_key = wms.groupby(["facility", "menu_ship_date"], as_index=False)["waste_cost"].sum()
     meals_by_key = meals.groupby(["facility", "menu_ship_date"], as_index=False)["total_meals"].sum()
 
-    merged        = waste_by_key.merge(meals_by_key, on=["facility", "menu_ship_date"], how="left")
+    merged         = waste_by_key.merge(meals_by_key, on=["facility", "menu_ship_date"], how="left")
     merged["week"] = pd.to_datetime(merged["menu_ship_date"]).dt.to_period("W").dt.start_time
     merged["cpm"]  = merged["waste_cost"] / merged["total_meals"].replace(0, np.nan)
     return merged
-
-
-FULL_WASTE_THRESHOLD = 0.95
 
 
 def build_po_analysis(wms: pd.DataFrame) -> pd.DataFrame:
@@ -501,10 +475,10 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    wms_week_dates  = set(wms_df["menu_ship_date"].dt.date.dropna().unique())
-    week_date_objs  = sorted([w.date() for w in menu_weeks if w.date() in wms_week_dates])
-    week_labels     = [w.strftime("%b %d, %Y") for w in week_date_objs]
-    week_label_map  = {w.strftime("%b %d, %Y"): w for w in week_date_objs}
+    wms_week_dates = set(wms_df["menu_ship_date"].dt.date.dropna().unique())
+    week_date_objs = sorted([w.date() for w in menu_weeks if w.date() in wms_week_dates])
+    week_labels    = [w.strftime("%b %d, %Y") for w in week_date_objs]
+    week_label_map = {w.strftime("%b %d, %Y"): w for w in week_date_objs}
 
     selected_weeks = None
 
@@ -521,7 +495,7 @@ with st.sidebar:
         date_range = (data_max - timedelta(weeks=12), data_max)
         st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
     else:
-        date_range   = (data_min, data_max)
+        date_range    = (data_min, data_max)
         chosen_labels = st.multiselect(
             "Pick menu weeks",
             options=week_labels,
@@ -588,41 +562,41 @@ else:
 
 # ── KPI CALCULATIONS ──────────────────────────────────────────────────────────
 
-total_cost  = f["waste_cost"].sum()
-cpm_detail  = build_cpm(f, meals_f)
-
+total_cost          = f["waste_cost"].sum()
+cpm_detail          = build_cpm(f, meals_f)
 total_meals_matched = cpm_detail["total_meals"].sum()
-overall_cpm = total_cost / total_meals_matched if total_meals_matched > 0 else np.nan
+overall_cpm         = total_cost / total_meals_matched if total_meals_matched > 0 else np.nan
 
 reason_sums    = f.groupby("waste_reason")["waste_cost"].sum()
 top_reason     = reason_sums.idxmax() if not reason_sums.empty else "N/A"
 top_reason_pct = (reason_sums[top_reason] / total_cost * 100) if total_cost else 0
 
-disposal_cost  = f[
+disposal_cost = f[
     f["waste_reason"].str.lower().str.contains("disposal", na=False)
 ]["waste_cost"].sum()
-disposal_pct   = (disposal_cost / total_cost * 100) if total_cost else 0
+disposal_pct  = (disposal_cost / total_cost * 100) if total_cost else 0
 
-# Prior-period comparison for delta chip
+# Prior-period comparison for Total Waste Cost delta badge
 if selected_weeks is None:
-    prior_start = date_range[0] - (date_range[1] - date_range[0])
+    span        = date_range[1] - date_range[0]
+    prior_start = date_range[0] - span
     prior_end   = date_range[0] - timedelta(days=1)
-    prior_mask = (
+    prior_cost  = wms_df.loc[
         (wms_df["menu_ship_date"].dt.date >= prior_start) &
-        (wms_df["menu_ship_date"].dt.date <= prior_end)
-    )
-    prior_cost = wms_df.loc[prior_mask, "waste_cost"].sum()
-    cost_delta_pct = (
-        (total_cost - prior_cost) / prior_cost * 100
-        if prior_cost else np.nan
-    )
+        (wms_df["menu_ship_date"].dt.date <= prior_end),
+        "waste_cost",
+    ].sum()
+    cost_delta_pct = (total_cost - prior_cost) / prior_cost * 100 if prior_cost else np.nan
 else:
     cost_delta_pct = np.nan
 
-cost_delta_str = (
-    f"{'↓' if cost_delta_pct < 0 else '↑'} {abs(cost_delta_pct):.1f}% vs prior period"
-    if not np.isnan(cost_delta_pct) else "—"
-)
+if not np.isnan(cost_delta_pct):
+    direction       = "down" if cost_delta_pct < 0 else "up"
+    cost_delta_str  = f"{direction} {abs(cost_delta_pct):.1f}% vs prior period"
+    cost_delta_good = cost_delta_pct < 0
+else:
+    cost_delta_str  = None
+    cost_delta_good = None
 
 
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────
@@ -634,32 +608,54 @@ range_str = (
 fac_str = sel_facility if sel_facility != "All" else f"{f['facility'].nunique()} facilities"
 
 st.markdown(
-    f'''
-    <div class="hc-eyebrow-green">Internal · Operations</div>
-    <p class="hc-title">Produce Waste Scorecard</p>
-    <p class="hc-eyebrow">
-        {range_str}<span class="dot"></span>
-        {fac_str}<span class="dot"></span>
-        {len(f):,} records
-    </p>
-    ''',
+    f'<div class="hc-eyebrow-green">Internal &nbsp;·&nbsp; Operations</div>'
+    f'<p class="hc-title">Produce Waste Scorecard</p>'
+    f'<p class="hc-eyebrow">{range_str} &nbsp;·&nbsp; {fac_str} &nbsp;·&nbsp; {len(f):,} records</p>',
     unsafe_allow_html=True,
 )
 st.divider()
 
 
 # ── KPI CARDS ─────────────────────────────────────────────────────────────────
+# Custom HTML cards — st.metric() resists CSS overrides, so we render our own.
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Waste Cost", f"${total_cost:,.0f}", cost_delta_str)
-k2.metric(
-    "Overall CPM",
-    f"${overall_cpm:.4f}" if not np.isnan(overall_cpm) else "—",
-    f"{total_meals_matched/1e6:.1f}M meals matched" if total_meals_matched > 0 else "—",
-    help=f"Total waste ${total_cost:,.0f} ÷ {total_meals_matched:,.0f} matched meals",
-)
-k3.metric("Top Waste Reason",   top_reason, f"{top_reason_pct:.1f}% of cost")
-k4.metric("True Disposal Cost", f"${disposal_cost:,.0f}", f"{disposal_pct:.1f}% of total")
+
+with k1:
+    st.markdown(kpi_card(
+        "Total Waste Cost",
+        f"${total_cost:,.0f}",
+        delta=cost_delta_str,
+        delta_positive=cost_delta_good,
+    ), unsafe_allow_html=True)
+
+with k2:
+    cpm_val    = f"${overall_cpm:.4f}" if not np.isnan(overall_cpm) else "—"
+    meals_note = (f"{total_meals_matched/1e6:.1f}M meals matched"
+                  if total_meals_matched > 0 else None)
+    st.markdown(kpi_card(
+        "Overall CPM",
+        cpm_val,
+        delta=meals_note,
+        delta_positive=None,
+        help_text=f"Total waste ${total_cost:,.0f} / {total_meals_matched:,.0f} matched meals",
+    ), unsafe_allow_html=True)
+
+with k3:
+    st.markdown(kpi_card(
+        "Top Waste Reason",
+        top_reason,
+        delta=f"{top_reason_pct:.1f}% of cost",
+        delta_positive=None,
+    ), unsafe_allow_html=True)
+
+with k4:
+    st.markdown(kpi_card(
+        "True Disposal Cost",
+        f"${disposal_cost:,.0f}",
+        delta=f"{disposal_pct:.1f}% of total",
+        delta_positive=None,
+    ), unsafe_allow_html=True)
 
 st.divider()
 
@@ -679,35 +675,47 @@ with tab_trends:
 
     with c1:
         wk_cost = f.groupby("week")["waste_cost"].sum().reset_index()
-        fig = px.line(wk_cost, x="week", y="waste_cost",
-                      title="Weekly waste cost",
-                      labels={"week": "Week of", "waste_cost": "Waste Cost ($)"},
-                      markers=True, color_discrete_sequence=[HC_GREEN])
+        fig = px.line(
+            wk_cost, x="week", y="waste_cost",
+            title="Weekly waste cost",
+            labels={"week": "Week of", "waste_cost": "Waste Cost ($)"},
+            markers=True, color_discrete_sequence=[HC_GREEN],
+        )
         fig.update_traces(
             line_width=2,
-            marker=dict(size=7, color="#FEF9F5", line=dict(width=2, color=HC_GREEN)),
+            marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_GREEN)),
         )
         fig.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",")
         st.plotly_chart(chart_base(fig), use_container_width=True)
 
     with c2:
-        reason_df = (f.groupby("waste_reason")["waste_cost"].sum()
-                      .reset_index().sort_values("waste_cost", ascending=False))
-        fig2 = px.bar(reason_df, x="waste_reason", y="waste_cost",
-                      title="Waste cost by reason  —  negative bar indicates a correction",
-                      labels={"waste_reason": "Reason", "waste_cost": "Waste Cost ($)"},
-                      color="waste_reason",
-                      color_discrete_sequence=HC_PALETTE,
-                      text_auto="$.3s")
-        fig2.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",",
-                           showlegend=False, xaxis_title=None)
+        reason_df = (
+            f.groupby("waste_reason")["waste_cost"]
+            .sum().reset_index()
+            .sort_values("waste_cost", ascending=False)
+        )
+        fig2 = px.bar(
+            reason_df, x="waste_reason", y="waste_cost",
+            title="Waste cost by reason — negative bar indicates a correction",
+            labels={"waste_reason": "Reason", "waste_cost": "Waste Cost ($)"},
+            color="waste_reason",
+            color_discrete_sequence=HC_PALETTE,
+            text_auto="$.3s",
+        )
+        fig2.update_layout(
+            yaxis_tickprefix="$", yaxis_tickformat=",",
+            showlegend=False, xaxis_title=None,
+        )
         st.plotly_chart(chart_base(fig2), use_container_width=True)
 
+    section_head("Over time", "Weekly waste by reason")
     wk_reason = f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index()
-    fig3 = px.area(wk_reason, x="week", y="waste_cost", color="waste_reason",
-                   title="Weekly waste cost — stacked by reason",
-                   labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "waste_reason": "Reason"},
-                   color_discrete_sequence=HC_PALETTE)
+    fig3 = px.area(
+        wk_reason, x="week", y="waste_cost", color="waste_reason",
+        title="Weekly waste cost — stacked by reason",
+        labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "waste_reason": "Reason"},
+        color_discrete_sequence=HC_PALETTE,
+    )
     fig3.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",")
     st.plotly_chart(chart_base(fig3), use_container_width=True)
 
@@ -723,18 +731,20 @@ with tab_cpm:
                if g["total_meals"].sum() > 0 else np.nan)
         .reset_index(name="cpm")
     )
-    fig_cpm1 = px.line(wk_cpm, x="week", y="cpm",
-                        title="Weekly cost per meal — all facilities combined",
-                        labels={"week": "Week of", "cpm": "CPM ($)"},
-                        markers=True, color_discrete_sequence=[HC_MELON])
+    fig_cpm1 = px.line(
+        wk_cpm, x="week", y="cpm",
+        title="Weekly cost per meal — all facilities combined",
+        labels={"week": "Week of", "cpm": "CPM ($)"},
+        markers=True, color_discrete_sequence=[HC_MELON],
+    )
     fig_cpm1.update_traces(
         line_width=2,
-        marker=dict(size=7, color="#FEF9F5", line=dict(width=2, color=HC_MELON)),
+        marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
     )
     fig_cpm1.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f")
     st.plotly_chart(chart_base(fig_cpm1), use_container_width=True)
 
-    section_head("By facility", "CPM detail")
+    section_head("By facility", "CPM breakdown")
 
     c_left, c_right = st.columns(2)
 
@@ -772,9 +782,12 @@ with tab_cpm:
         fac_cpm_tbl["cpm"] = fac_cpm_tbl["waste_cost"] / fac_cpm_tbl["total_meals"].replace(0, np.nan)
         fac_cpm_tbl = fac_cpm_tbl.sort_values("cpm", ascending=False)
 
-        st.markdown('<p class="hc-eyebrow" style="color:#008600">Summary</p>'
-                    '<h3 style="font-family:Bree Serif,Georgia,serif;font-size:18px;color:#1A1A1A;margin:0 0 10px">CPM by facility</h3>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            '<p class="hc-eyebrow" style="color:#008600;margin-bottom:6px">Summary</p>'
+            '<h3 style="font-family:\'Bree Serif\',Georgia,serif;font-size:20px;'
+            'color:#1A1A1A;margin:0 0 12px">CPM by facility</h3>',
+            unsafe_allow_html=True,
+        )
         st.dataframe(
             fac_cpm_tbl,
             use_container_width=True,
@@ -805,7 +818,10 @@ with tab_cpm:
         fig_multi.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f")
         st.plotly_chart(chart_base(fig_multi, height=440), use_container_width=True)
     else:
-        st.info(f"Multi-line CPM chart is hidden when more than 12 facilities are shown ({n_facs} currently). Use the Facility filter to drill into a subset.")
+        st.info(
+            f"Multi-line CPM chart hidden when more than 12 facilities are shown "
+            f"({n_facs} currently). Use the Facility filter to drill in."
+        )
 
     heat_cpm = (
         cpm_detail[cpm_detail["total_meals"] > 0]
@@ -813,9 +829,11 @@ with tab_cpm:
         .pivot_table(index="facility", columns="week", values="cpm", aggfunc="mean")
     )
     if not heat_cpm.empty:
-        section_head("Heatmap", "CPM by facility × week")
-        heat_cpm.columns = [c.strftime("%m/%d") if hasattr(c, "strftime") else str(c)
-                            for c in heat_cpm.columns]
+        section_head("Heatmap", "CPM by facility x week")
+        heat_cpm.columns = [
+            c.strftime("%m/%d") if hasattr(c, "strftime") else str(c)
+            for c in heat_cpm.columns
+        ]
         fig_heat = px.imshow(
             heat_cpm,
             title="CPM heatmap — facility by week",
@@ -853,6 +871,7 @@ with tab_facility:
     )
     st.plotly_chart(chart_base(fig_fac), use_container_width=True)
 
+    section_head("Over time", "Weekly waste by facility")
     fac_wk = f.groupby(["week", "facility"])["waste_cost"].sum().reset_index()
     fig_fac_trend = px.bar(
         fac_wk, x="week", y="waste_cost", color="facility",
@@ -882,7 +901,7 @@ with tab_ingredients:
             ing, y="ingredient_name", x="waste_cost",
             orientation="h",
             title=f"Top {top_n} ingredients by waste cost",
-            labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)", "uom": "UOM"},
+            labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
             color="waste_cost",
             color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
             text_auto="$.3s",
@@ -896,12 +915,14 @@ with tab_ingredients:
         st.plotly_chart(chart_base(fig_ing), use_container_width=True)
 
     with c_right:
-        st.markdown('<p class="hc-eyebrow" style="color:#008600">Top Ingredients</p>'
-                    '<h3 style="font-family:Bree Serif,Georgia,serif;font-size:18px;color:#1A1A1A;margin:0 0 10px">Ranked by waste cost</h3>',
-                    unsafe_allow_html=True)
-        ing_tbl = ing.copy()
+        st.markdown(
+            '<p class="hc-eyebrow" style="color:#008600;margin-bottom:6px">Ranked table</p>'
+            '<h3 style="font-family:\'Bree Serif\',Georgia,serif;font-size:20px;'
+            'color:#1A1A1A;margin:0 0 12px">Top ingredients</h3>',
+            unsafe_allow_html=True,
+        )
         st.dataframe(
-            ing_tbl.reset_index(drop=True),
+            ing.reset_index(drop=True),
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -910,6 +931,7 @@ with tab_ingredients:
             },
         )
 
+    section_head("Breakdown", "Ingredients by waste reason")
     heat_df = (
         f.groupby(["ingredient_name", "waste_reason"])["waste_cost"]
         .sum().unstack(fill_value=0)
@@ -937,37 +959,49 @@ with tab_ingredients:
 with tab_po:
     po_df = build_po_analysis(f)
 
-    full_waste  = po_df[po_df["full_po_wasted"]]
-    total_pos   = len(po_df)
-    n_full      = len(full_waste)
-    full_cost   = full_waste["waste_cost"].sum()
-    avg_pct     = po_df["pct_wasted"].mean() if total_pos else 0
+    full_waste = po_df[po_df["full_po_wasted"]]
+    total_pos  = len(po_df)
+    n_full     = len(full_waste)
+    full_cost  = full_waste["waste_cost"].sum()
+    avg_pct    = po_df["pct_wasted"].mean() if total_pos else 0
 
     p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Total POs in Period",      f"{total_pos:,}")
-    p2.metric("Avg % of PO Wasted",       f"{avg_pct:.1f}%",
-              help="Average across all POs: waste qty ÷ received qty")
-    p3.metric("Fully Wasted POs",         f"{n_full:,}",
-              help=f"POs where ≥ {int(FULL_WASTE_THRESHOLD*100)}% of received qty was wasted")
-    p4.metric("Cost of Fully Wasted POs", f"${full_cost:,.0f}")
+    with p1:
+        st.markdown(kpi_card("Total POs in Period", f"{total_pos:,}"), unsafe_allow_html=True)
+    with p2:
+        st.markdown(kpi_card(
+            "Avg % of PO Wasted", f"{avg_pct:.1f}%",
+            help_text="Average across all POs: waste qty / received qty",
+        ), unsafe_allow_html=True)
+    with p3:
+        st.markdown(kpi_card(
+            "Fully Wasted POs", f"{n_full:,}",
+            delta=f">= {int(FULL_WASTE_THRESHOLD*100)}% of received qty",
+            delta_positive=(n_full == 0),
+        ), unsafe_allow_html=True)
+    with p4:
+        st.markdown(kpi_card("Cost of Fully Wasted POs", f"${full_cost:,.0f}"), unsafe_allow_html=True)
 
     st.divider()
 
     if n_full > 0:
         section_head("Alert", "Fully wasted purchase orders")
-        st.caption(f"{n_full} PO{'s' if n_full != 1 else ''} where ≥ {int(FULL_WASTE_THRESHOLD*100)}% "
-                   f"of received quantity was wasted — aggregated across all lot IDs per PO.")
+        st.caption(
+            f"{n_full} PO{'s' if n_full != 1 else ''} where "
+            f">= {int(FULL_WASTE_THRESHOLD*100)}% of received quantity was wasted "
+            f"— aggregated across all lot IDs per PO."
+        )
 
         ff1, ff2, ff3 = st.columns(3)
         with ff1:
             fac_opts = ["All"] + sorted(full_waste["facility"].dropna().unique())
-            tbl_fac  = st.selectbox("Filter by facility", fac_opts, key="po_fac")
+            tbl_fac  = st.selectbox("Filter by facility",   fac_opts, key="po_fac")
         with ff2:
             ing_opts = ["All"] + sorted(full_waste["ingredient_name"].dropna().unique())
             tbl_ing  = st.selectbox("Filter by ingredient", ing_opts, key="po_ing")
         with ff3:
             rsn_opts = ["All"] + sorted(full_waste["waste_reason"].dropna().unique())
-            tbl_rsn  = st.selectbox("Filter by reason", rsn_opts, key="po_rsn")
+            tbl_rsn  = st.selectbox("Filter by reason",     rsn_opts, key="po_rsn")
 
         tbl_data = full_waste.copy()
         if tbl_fac != "All": tbl_data = tbl_data[tbl_data["facility"]        == tbl_fac]
@@ -976,7 +1010,7 @@ with tab_po:
 
         full_display = tbl_data[[
             "po_number", "facility", "ingredient_name", "menu_ship_date",
-            "waste_qty", "received_qty", "pct_wasted", "waste_cost", "n_lots", "waste_reason"
+            "waste_qty", "received_qty", "pct_wasted", "waste_cost", "n_lots", "waste_reason",
         ]].sort_values("waste_cost", ascending=False).copy()
 
         st.caption(f"{len(full_display):,} POs shown")
@@ -988,13 +1022,13 @@ with tab_po:
                 "po_number":       st.column_config.TextColumn("PO Number"),
                 "facility":        st.column_config.TextColumn("Facility"),
                 "ingredient_name": st.column_config.TextColumn("Ingredient"),
-                "menu_ship_date":  st.column_config.DateColumn("Menu week", format="MMM D, YYYY"),
+                "menu_ship_date":  st.column_config.DateColumn("Menu week",     format="MMM D, YYYY"),
                 "waste_qty":       st.column_config.NumberColumn("Waste qty",    format="%.2f"),
                 "received_qty":    st.column_config.NumberColumn("Received qty", format="%.2f"),
                 "pct_wasted":      st.column_config.ProgressColumn(
                                        "% Wasted", min_value=0, max_value=100, format="%.1f%%"),
-                "waste_cost":      st.column_config.NumberColumn("Waste cost", format="$%.2f"),
-                "n_lots":          st.column_config.NumberColumn("Lots", format="%d"),
+                "waste_cost":      st.column_config.NumberColumn("Waste cost",   format="$%.2f"),
+                "n_lots":          st.column_config.NumberColumn("Lots",         format="%d"),
                 "waste_reason":    st.column_config.TextColumn("Primary reason"),
             },
         )
@@ -1008,8 +1042,7 @@ with tab_po:
     with c1:
         fig_dist = px.histogram(
             po_df[po_df["pct_wasted"] > 0],
-            x="pct_wasted",
-            nbins=20,
+            x="pct_wasted", nbins=20,
             title="Distribution of POs by % wasted",
             labels={"pct_wasted": "% of PO Wasted", "count": "Number of POs"},
             color_discrete_sequence=[HC_GREEN],
@@ -1050,12 +1083,12 @@ with tab_po:
     ing_po = (
         po_df.groupby("ingredient_name")
         .agg(
-            avg_pct_wasted  = ("pct_wasted",     "mean"),
-            total_pos       = ("po_number",       "count"),
-            fully_wasted_pos= ("full_po_wasted",  "sum"),
-            total_waste_cost= ("waste_cost",      "sum"),
-            total_waste_qty = ("waste_qty",       "sum"),
-            total_received  = ("received_qty",    "sum"),
+            avg_pct_wasted   = ("pct_wasted",    "mean"),
+            total_pos        = ("po_number",      "count"),
+            fully_wasted_pos = ("full_po_wasted", "sum"),
+            total_waste_cost = ("waste_cost",     "sum"),
+            total_waste_qty  = ("waste_qty",      "sum"),
+            total_received   = ("received_qty",   "sum"),
         )
         .reset_index()
     )
@@ -1067,8 +1100,7 @@ with tab_po:
     ).clip(upper=100).fillna(0)
 
     top_n_ing = st.slider("Show top N ingredients", 10, 50, 20, key="po_ing_slider")
-
-    top_ing = ing_po.nlargest(top_n_ing, "avg_pct_wasted")
+    top_ing   = ing_po.nlargest(top_n_ing, "avg_pct_wasted")
 
     ci1, ci2 = st.columns(2)
 
@@ -1115,7 +1147,7 @@ with tab_po:
     ing_display = ing_po.sort_values("avg_pct_wasted", ascending=False).copy()
     ing_display = ing_display[[
         "ingredient_name", "total_pos", "fully_wasted_pos",
-        "pct_pos_fully_wasted", "avg_pct_wasted", "overall_pct_wasted", "total_waste_cost"
+        "pct_pos_fully_wasted", "avg_pct_wasted", "overall_pct_wasted", "total_waste_cost",
     ]]
     st.dataframe(
         ing_display,
@@ -1126,7 +1158,7 @@ with tab_po:
             "total_pos":            st.column_config.NumberColumn("Total POs",        format="%d"),
             "fully_wasted_pos":     st.column_config.NumberColumn("Fully wasted POs", format="%d"),
             "pct_pos_fully_wasted": st.column_config.ProgressColumn(
-                                        "% POs fully wasted", min_value=0, max_value=100, format="%.1f%%"),
+                                        "% POs fully wasted",  min_value=0, max_value=100, format="%.1f%%"),
             "avg_pct_wasted":       st.column_config.ProgressColumn(
                                         "Avg % wasted per PO", min_value=0, max_value=100, format="%.1f%%"),
             "overall_pct_wasted":   st.column_config.ProgressColumn(
@@ -1150,9 +1182,7 @@ with tab_po:
             "waste_qty":      "Waste Qty (log)",
             "full_po_wasted": "Fully Wasted",
         },
-        log_x=True,
-        log_y=True,
-        opacity=0.7,
+        log_x=True, log_y=True, opacity=0.7,
     )
     log_min = max(scatter_data[["received_qty", "waste_qty"]].min().min(), 0.01)
     log_max = scatter_data[["received_qty", "waste_qty"]].max().max()
@@ -1175,7 +1205,7 @@ with tab_po:
 # TAB 6 — DETAIL TABLE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_table:
-    # Toolbar: search + filters
+    # Toolbar: full-text search + column filters
     tt1, tt2, tt3, tt4 = st.columns([3, 1.4, 1.4, 1.4])
     with tt1:
         search = st.text_input(
@@ -1200,13 +1230,12 @@ with tab_table:
             label_visibility="collapsed", key="dt_uom",
         )
 
-    # Apply table-local filters
     dt = f.copy()
     if dt_fac != "All facilities": dt = dt[dt["facility"]     == dt_fac]
     if dt_rsn != "All reasons":    dt = dt[dt["waste_reason"] == dt_rsn]
     if dt_uom != "All UOMs":       dt = dt[dt["uom"]          == dt_uom]
     if search:
-        s = search.lower()
+        s  = search.lower()
         dt = dt[
             dt["ingredient_name"].str.lower().str.contains(s, na=False) |
             dt["facility"].str.lower().str.contains(s, na=False) |
@@ -1216,7 +1245,7 @@ with tab_table:
 
     st.markdown(
         f'<p class="hc-eyebrow" style="margin-bottom:8px">'
-        f'{len(dt):,} rows · sorted by created date desc</p>',
+        f'{len(dt):,} rows &nbsp;·&nbsp; sorted by created date desc</p>',
         unsafe_allow_html=True,
     )
 
@@ -1226,7 +1255,7 @@ with tab_table:
         "menu_ship_date", "waste_cost", "is_rth",
     ]
     existing = [c for c in display_cols if c in dt.columns]
-    detail = dt[existing].sort_values("created_date", ascending=False).copy()
+    detail   = dt[existing].sort_values("created_date", ascending=False).copy()
 
     st.dataframe(
         detail,
@@ -1234,16 +1263,16 @@ with tab_table:
         hide_index=True,
         height=560,
         column_config={
-            "created_date":        st.column_config.DateColumn("Created",        format="MMM D, YYYY"),
+            "created_date":        st.column_config.DateColumn("Created",      format="MMM D, YYYY"),
             "facility":            st.column_config.TextColumn("Facility"),
             "ingredient_name":     st.column_config.TextColumn("Ingredient"),
-            "uom":                 st.column_config.TextColumn("UOM",            width="small"),
-            "quantity":            st.column_config.NumberColumn("Qty",          format="%.2f"),
+            "uom":                 st.column_config.TextColumn("UOM",          width="small"),
+            "quantity":            st.column_config.NumberColumn("Qty",        format="%.2f"),
             "waste_reason":        st.column_config.TextColumn("Reason"),
             "waste_reason_detail": st.column_config.TextColumn("Detail"),
-            "menu_ship_date":      st.column_config.DateColumn("Menu week",      format="MMM D"),
-            "waste_cost":          st.column_config.NumberColumn("Waste cost",   format="$%.2f"),
-            "is_rth":              st.column_config.TextColumn("RTH",            width="small"),
+            "menu_ship_date":      st.column_config.DateColumn("Menu week",    format="MMM D"),
+            "waste_cost":          st.column_config.NumberColumn("Waste cost", format="$%.2f"),
+            "is_rth":              st.column_config.TextColumn("RTH",          width="small"),
         },
     )
 
