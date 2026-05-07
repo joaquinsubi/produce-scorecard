@@ -130,38 +130,26 @@ section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
     color: #FEF9F5 !important;
     font-size: 13px;
 }
-section[data-testid="stSidebar"] [data-testid="stRadio"] > div {
-    background: rgba(254,249,245,0.08);
-    border-radius: 8px;
-    padding: 3px;
-    gap: 0 !important;
+/* st.pills — date preset selector */
+section[data-testid="stSidebar"] [data-testid="stPills"] {
+    gap: 4px !important;
 }
-section[data-testid="stSidebar"] [data-testid="stRadio"] label {
-    flex: 1; text-align: center;
-    background: transparent !important;
-    border-radius: 6px !important;
-    padding: 6px 6px !important;
+section[data-testid="stSidebar"] [data-testid="stPills"] button {
+    background: rgba(254,249,245,0.10) !important;
+    border: 1px solid rgba(254,249,245,0.15) !important;
+    border-radius: 999px !important;
+    color: rgba(254,249,245,0.75) !important;
+    font-family: 'Karla',sans-serif !important;
     font-size: 11px !important;
-    font-weight: 600 !important;
-    margin: 0 !important;
-    white-space: nowrap !important;
-    min-width: 0;
-}
-section[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+    font-weight: 700 !important;
+    padding: 4px 10px !important;
     white-space: nowrap !important;
 }
-section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+section[data-testid="stSidebar"] [data-testid="stPills"] button[aria-pressed="true"],
+section[data-testid="stSidebar"] [data-testid="stPills"] button[data-active="true"] {
     background: #FEF9F5 !important;
-}
-section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
+    border-color: #FEF9F5 !important;
     color: #0B355A !important;
-}
-/* Hide radio circle — target the SVG indicator only, not the option container */
-section[data-testid="stSidebar"] [data-testid="stRadio"] label svg {
-    display: none !important;
-}
-section[data-testid="stSidebar"] [data-testid="stRadio"] label input {
-    display: none !important;
 }
 section[data-testid="stSidebar"] .stButton button {
     background: #008600 !important;
@@ -480,12 +468,14 @@ with st.sidebar:
     today    = date.today()
     jan_1    = date(today.year, 1, 1)
 
-    preset = st.radio(
+    preset = st.pills(
         "Quick select",
         ["YTD", "4W", "8W", "12W", "Pick"],
-        horizontal=True,
+        default="YTD",
         label_visibility="collapsed",
     )
+    if preset is None:
+        preset = "YTD"
 
     wms_week_dates = set(wms_df["menu_ship_date"].dt.date.dropna().unique())
     week_date_objs = sorted([w.date() for w in menu_weeks if w.date() in wms_week_dates])
