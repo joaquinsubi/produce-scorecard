@@ -1275,10 +1275,10 @@ with tab_shorts:
         st.divider()
 
         # ── Row 1: top ingredients + reason breakdown ─────────────────────
-        top_n_s = st.slider("Show top N ingredients", 10, 50, 20, key="shorts_ing_slider")
         r1a, r1b = st.columns(2)
 
         with r1a:
+            top_n_s = st.slider("Show top N ingredients", 10, 50, 20, key="shorts_ing_slider")
             ing_counts = (
                 shorts_f.groupby("shorted_ingredient")
                 .size().reset_index(name="shorts")
@@ -1303,6 +1303,7 @@ with tab_shorts:
             st.plotly_chart(chart_base(fig_sing), use_container_width=True)
 
         with r1b:
+            st.markdown('<div style="height:46px"></div>', unsafe_allow_html=True)
             rsn_counts = (
                 shorts_f.groupby("short_reason")
                 .size().reset_index(name="shorts")
