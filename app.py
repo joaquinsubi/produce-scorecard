@@ -380,7 +380,7 @@ def parse_wms(raw: list) -> pd.DataFrame:
     df["waste_cost"]   = pd.to_numeric(df["waste_cost"],   errors="coerce").fillna(0) * -1
 
     df["facility"] = df["facility"].astype(str).str.strip()
-    df["week"]     = df["menu_ship_date"].dt.to_period("W").dt.start_time
+    df["week"]     = (df["menu_ship_date"] - pd.to_timedelta(df["menu_ship_date"].dt.dayofweek, unit="D")).dt.normalize()
 
     return df.dropna(subset=["created_date"])
 
@@ -422,7 +422,7 @@ def parse_shorts(raw: list) -> pd.DataFrame:
     df["shorted_ingredient"] = df["shorted_ingredient"].astype(str).str.strip()
     df["short_reason"]       = df["short_reason"].astype(str).str.strip()
     df["category"]           = df["category"].astype(str).str.strip()
-    df["week"]               = df["menu_ship_week"].dt.to_period("W").dt.start_time
+    df["week"]               = (df["menu_ship_week"] - pd.to_timedelta(df["menu_ship_week"].dt.dayofweek, unit="D")).dt.normalize()
 
     # Only produce shorts
     df = df[df["category"].str.lower() == "produce"]
@@ -439,7 +439,8 @@ def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
     meals_by_key = meals.groupby(["facility", "menu_ship_date"], as_index=False)["total_meals"].sum()
 
     merged         = waste_by_key.merge(meals_by_key, on=["facility", "menu_ship_date"], how="left")
-    merged["week"] = pd.to_datetime(merged["menu_ship_date"]).dt.to_period("W").dt.start_time
+    _d = pd.to_datetime(merged["menu_ship_date"])
+    merged["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize()
     merged["cpm"]  = merged["waste_cost"] / merged["total_meals"].replace(0, np.nan)
     return merged
 
@@ -1259,7 +1260,7 @@ with tab_shorts:
         total_shorts    = len(shorts_f)
         top_short_ing   = shorts_f["shorted_ingredient"].mode()[0] if total_shorts else "—"
         top_short_rsn   = shorts_f["short_reason"].mode()[0] if total_shorts else "—"
-        facs_affected   = shorts_f["facility"].nunique()
+        top_vendor      = shorts_f["brand"].mode()[0] if total_shorts and "brand" in shorts_f.columns else "—"
 
         sk1, sk2, sk3, sk4 = st.columns(4)
         with sk1:
@@ -1269,7 +1270,7 @@ with tab_shorts:
         with sk3:
             st.markdown(kpi_card("Top Short Reason", top_short_rsn), unsafe_allow_html=True)
         with sk4:
-            st.markdown(kpi_card("Facilities Affected", f"{facs_affected}"), unsafe_allow_html=True)
+            st.markdown(kpi_card("Top Vendor", top_vendor), unsafe_allow_html=True)
 
         st.divider()
 
@@ -1316,7 +1317,11 @@ with tab_shorts:
                 color_discrete_sequence=HC_PALETTE,
                 text_auto=True,
             )
-            fig_srsn.update_layout(showlegend=False, xaxis_title=None)
+            fig_srsn.update_layout(
+                showlegend=False,
+                xaxis_title=None,
+                height=max(400, top_n_s * 28),
+            )
             st.plotly_chart(chart_base(fig_srsn), use_container_width=True)
 
         # ── Weekly trend ──────────────────────────────────────────────────
@@ -1341,6 +1346,8 @@ with tab_shorts:
             .size().unstack(fill_value=0)
         )
         if not heat_s.empty:
+            reason_order = heat_s.sum(axis=0).sort_values(ascending=False).index.tolist()
+            heat_s = heat_s[reason_order]
             fig_sheat = px.imshow(
                 heat_s,
                 title="Short count — facility by reason",
