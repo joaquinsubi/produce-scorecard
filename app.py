@@ -898,49 +898,29 @@ with tab_cpm:
 # TAB 4 — BY INGREDIENT
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_ingredients:
-    c_left, c_right = st.columns([2, 1])
-
-    with c_left:
-        top_n = st.slider("Show top N ingredients", 10, 50, 20)
-        ing = (
-            f.groupby("ingredient_name")["waste_cost"]
-            .sum().reset_index()
-            .sort_values("waste_cost", ascending=False)
-            .head(top_n)
-        )
-        fig_ing = px.bar(
-            ing, y="ingredient_name", x="waste_cost",
-            orientation="h",
-            title=f"Top {top_n} ingredients by waste cost",
-            labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
-            color="waste_cost",
-            color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
-            text_auto="$.3s",
-        )
-        fig_ing.update_layout(
-            xaxis_tickprefix="$", xaxis_tickformat=",",
-            yaxis={"categoryorder": "total ascending"},
-            coloraxis_showscale=False,
-            height=max(400, top_n * 28),
-        )
-        st.plotly_chart(chart_base(fig_ing), use_container_width=True)
-
-    with c_right:
-        st.markdown(
-            '<p class="hc-eyebrow" style="color:#008600;margin-bottom:6px">Ranked table</p>'
-            '<h3 style="font-family:\'Bree Serif\',Georgia,serif;font-size:20px;'
-            'color:#1A1A1A;margin:0 0 12px">Top ingredients</h3>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(
-            ing.reset_index(drop=True),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "ingredient_name": st.column_config.TextColumn("Ingredient"),
-                "waste_cost":      st.column_config.NumberColumn("Waste cost", format="$%,.2f"),
-            },
-        )
+    top_n = st.slider("Show top N ingredients", 10, 50, 20)
+    ing = (
+        f.groupby("ingredient_name")["waste_cost"]
+        .sum().reset_index()
+        .sort_values("waste_cost", ascending=False)
+        .head(top_n)
+    )
+    fig_ing = px.bar(
+        ing, y="ingredient_name", x="waste_cost",
+        orientation="h",
+        title=f"Top {top_n} ingredients by waste cost",
+        labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
+        color="waste_cost",
+        color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
+        text_auto="$.3s",
+    )
+    fig_ing.update_layout(
+        xaxis_tickprefix="$", xaxis_tickformat=",",
+        yaxis={"categoryorder": "total ascending"},
+        coloraxis_showscale=False,
+        height=max(400, top_n * 28),
+    )
+    st.plotly_chart(chart_base(fig_ing), use_container_width=True)
 
     section_head("Breakdown", "Ingredients by waste reason")
     heat_df = (
@@ -1004,17 +984,20 @@ with tab_po:
             f"— one line = one PO × ingredient, aggregated across all lot IDs."
         )
 
-        st.caption("Filter the table below:")
+        st.markdown('<p class="hc-eyebrow" style="margin-bottom:6px">Filter the table below</p>', unsafe_allow_html=True)
         ff1, ff2, ff3 = st.columns(3)
         with ff1:
+            st.markdown('<p style="font-family:Karla,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#7A7A7A;margin-bottom:4px">Facility</p>', unsafe_allow_html=True)
             fac_opts = ["All"] + sorted(full_waste["facility"].dropna().unique())
-            tbl_fac  = st.selectbox("Facility",   fac_opts, key="po_fac")
+            tbl_fac  = st.selectbox("Facility",   fac_opts, key="po_fac", label_visibility="collapsed")
         with ff2:
+            st.markdown('<p style="font-family:Karla,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#7A7A7A;margin-bottom:4px">Ingredient</p>', unsafe_allow_html=True)
             ing_opts = ["All"] + sorted(full_waste["ingredient_name"].dropna().unique())
-            tbl_ing  = st.selectbox("Ingredient", ing_opts, key="po_ing")
+            tbl_ing  = st.selectbox("Ingredient", ing_opts, key="po_ing", label_visibility="collapsed")
         with ff3:
+            st.markdown('<p style="font-family:Karla,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#7A7A7A;margin-bottom:4px">Reason</p>', unsafe_allow_html=True)
             rsn_opts = ["All"] + sorted(full_waste["waste_reason"].dropna().unique())
-            tbl_rsn  = st.selectbox("Reason",     rsn_opts, key="po_rsn")
+            tbl_rsn  = st.selectbox("Reason",     rsn_opts, key="po_rsn", label_visibility="collapsed")
 
         tbl_data = full_waste.copy()
         if tbl_fac != "All": tbl_data = tbl_data[tbl_data["facility"]        == tbl_fac]
