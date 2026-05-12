@@ -1259,7 +1259,7 @@ with tab_shorts:
             fig_sing.update_layout(
                 yaxis={"categoryorder": "total ascending"},
                 coloraxis_showscale=False,
-                height=max(400, top_n_s * 28) + 50,
+                height=max(400, top_n_s * 28),
             )
             st.plotly_chart(chart_base(fig_sing), use_container_width=True)
 
@@ -1281,7 +1281,7 @@ with tab_shorts:
             fig_srsn.update_layout(
                 showlegend=False,
                 xaxis_title=None,
-                height=max(400, top_n_s * 28),
+                height=max(400, top_n_s * 28) + 50,
             )
             st.plotly_chart(chart_base(fig_srsn), use_container_width=True)
 
