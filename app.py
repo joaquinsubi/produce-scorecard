@@ -1406,12 +1406,16 @@ with tab_shorts:
         fig_drsn.update_layout(showlegend=False, xaxis_title=None)
         st.plotly_chart(chart_base(fig_drsn), use_container_width=True)
 
-        # Detail table
+        # Detail table — grouped so identical week/facility/reason/vendor rows are collapsed
         section_head("Records", f"All short records — {selected_ing}")
-        drill_display = drill[[
-            "menu_ship_week", "facility", "short_reason", "brand",
-        ]].sort_values("menu_ship_week", ascending=False).copy()
+        drill_display = (
+            drill.groupby(["menu_ship_week", "facility", "short_reason", "brand"], dropna=False)
+            .size()
+            .reset_index(name="count")
+            .sort_values(["menu_ship_week", "count"], ascending=[False, False])
+        )
         drill_display["menu_ship_week"] = drill_display["menu_ship_week"].dt.date
+        max_count = int(drill_display["count"].max()) if len(drill_display) else 1
         st.dataframe(
             drill_display,
             use_container_width=True,
@@ -1422,6 +1426,8 @@ with tab_shorts:
                 "facility":       st.column_config.TextColumn("Facility"),
                 "short_reason":   st.column_config.TextColumn("Reason Code"),
                 "brand":          st.column_config.TextColumn("Vendor / Brand"),
+                "count":          st.column_config.ProgressColumn(
+                                      "# Records", min_value=0, max_value=max_count, format="%d"),
             },
         )
 
