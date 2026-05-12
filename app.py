@@ -1275,10 +1275,10 @@ with tab_shorts:
         st.divider()
 
         # ── Row 1: top ingredients + reason breakdown ─────────────────────
+        top_n_s = st.slider("Show top N ingredients", 10, 50, 20, key="shorts_ing_slider")
         r1a, r1b = st.columns(2)
 
         with r1a:
-            top_n_s = st.slider("Show top N ingredients", 10, 50, 20, key="shorts_ing_slider")
             ing_counts = (
                 shorts_f.groupby("shorted_ingredient")
                 .size().reset_index(name="shorts")
@@ -1362,45 +1362,6 @@ with tab_shorts:
             )
             st.plotly_chart(chart_base(fig_sheat), use_container_width=True)
 
-        # ── Shorts vs waste cost correlation ──────────────────────────────
-        section_head("Correlation", "Shorts vs waste cost by week")
-        st.caption(
-            "Each point is one facility-week. Weeks with more shorts trending "
-            "toward higher waste cost suggest a supply disruption signal."
-        )
-        shorts_by_wk = (
-            shorts_f.groupby(["facility", "week"])
-            .size().reset_index(name="short_count")
-        )
-        waste_by_wk = (
-            f.groupby(["facility", "week"])["waste_cost"]
-            .sum().reset_index()
-        )
-        corr_df = shorts_by_wk.merge(waste_by_wk, on=["facility", "week"], how="inner")
-
-        if not corr_df.empty:
-            fig_corr = px.scatter(
-                corr_df,
-                x="short_count", y="waste_cost",
-                color="facility",
-                color_discrete_sequence=HC_PALETTE,
-                hover_data=["facility", "week", "short_count", "waste_cost"],
-                title="Weekly shorts vs waste cost — by facility",
-                labels={
-                    "short_count": "Produce shorts (count)",
-                    "waste_cost":  "Waste cost ($)",
-                    "facility":    "Facility",
-                },
-                trendline="ols",
-                opacity=0.75,
-            )
-            fig_corr.update_layout(
-                yaxis_tickprefix="$", yaxis_tickformat=",",
-                height=460,
-            )
-            st.plotly_chart(chart_base(fig_corr), use_container_width=True)
-        else:
-            st.info("Not enough overlapping weeks between shorts and waste data to plot correlation.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
