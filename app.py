@@ -719,10 +719,17 @@ tab_trends, tab_cpm, tab_ingredients, tab_po, tab_shorts, tab_table = st.tabs(
 # TAB 1 — WASTE TRENDS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_trends:
+    fac_cost_tr = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
+    reason_df   = (
+        f.groupby("waste_reason")["waste_cost"]
+        .sum().reset_index()
+        .sort_values("waste_cost", ascending=False)
+    )
+    row1_h = max(380, len(fac_cost_tr) * 52)
+
     c1, c2 = st.columns(2)
 
     with c1:
-        fac_cost_tr = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
         fig_fac_tr = px.bar(
             fac_cost_tr, y="facility", x="waste_cost",
             orientation="h",
@@ -735,16 +742,11 @@ with tab_trends:
         fig_fac_tr.update_layout(
             xaxis_tickprefix="$", xaxis_tickformat=",",
             coloraxis_showscale=False,
-            height=max(320, len(fac_cost_tr) * 44),
+            height=row1_h,
         )
         st.plotly_chart(chart_base(fig_fac_tr), use_container_width=True)
 
     with c2:
-        reason_df = (
-            f.groupby("waste_reason")["waste_cost"]
-            .sum().reset_index()
-            .sort_values("waste_cost", ascending=False)
-        )
         fig2 = px.bar(
             reason_df, x="waste_reason", y="waste_cost",
             title="Waste cost by reason — negative bar indicates a correction",
@@ -756,6 +758,7 @@ with tab_trends:
         fig2.update_layout(
             yaxis_tickprefix="$", yaxis_tickformat=",",
             showlegend=False, xaxis_title=None,
+            height=row1_h,
         )
         st.plotly_chart(chart_base(fig2), use_container_width=True)
 
