@@ -722,19 +722,22 @@ with tab_trends:
     c1, c2 = st.columns(2)
 
     with c1:
-        wk_cost = f.groupby("week")["waste_cost"].sum().reset_index()
-        fig = px.line(
-            wk_cost, x="week", y="waste_cost",
-            title="Weekly waste cost",
-            labels={"week": "Week of", "waste_cost": "Waste Cost ($)"},
-            markers=True, color_discrete_sequence=[HC_GREEN],
+        fac_cost_tr = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
+        fig_fac_tr = px.bar(
+            fac_cost_tr, y="facility", x="waste_cost",
+            orientation="h",
+            title="Total waste cost by facility",
+            labels={"facility": "", "waste_cost": "Waste Cost ($)"},
+            color="waste_cost",
+            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+            text_auto="$.3s",
         )
-        fig.update_traces(
-            line_width=2,
-            marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_GREEN)),
+        fig_fac_tr.update_layout(
+            xaxis_tickprefix="$", xaxis_tickformat=",",
+            coloraxis_showscale=False,
+            height=max(320, len(fac_cost_tr) * 44),
         )
-        fig.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",")
-        st.plotly_chart(chart_base(fig), use_container_width=True)
+        st.plotly_chart(chart_base(fig_fac_tr), use_container_width=True)
 
     with c2:
         reason_df = (
@@ -755,6 +758,17 @@ with tab_trends:
             showlegend=False, xaxis_title=None,
         )
         st.plotly_chart(chart_base(fig2), use_container_width=True)
+
+    section_head("By facility", "Weekly waste cost by facility")
+    fac_wk_tr = f.groupby(["week", "facility"])["waste_cost"].sum().reset_index()
+    fig_fac_wk = px.bar(
+        fac_wk_tr, x="week", y="waste_cost", color="facility",
+        title="Weekly waste cost by facility",
+        labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "facility": "Facility"},
+        color_discrete_sequence=HC_PALETTE,
+    )
+    fig_fac_wk.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", barmode="stack")
+    st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
 
     section_head("Over time", "Weekly waste by reason")
     wk_reason = f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index()
@@ -842,33 +856,10 @@ with tab_cpm:
             hide_index=True,
             column_config={
                 "facility":    st.column_config.TextColumn("Facility"),
-                "waste_cost":  st.column_config.NumberColumn("Waste cost",  format="$%.0f"),
-                "total_meals": st.column_config.NumberColumn("Total meals", format="%.0f"),
+                "waste_cost":  st.column_config.NumberColumn("Waste cost",  format="$%,.0f"),
+                "total_meals": st.column_config.NumberColumn("Total meals", format="%,.0f"),
                 "cpm":         st.column_config.NumberColumn("CPM",         format="$%.4f"),
             },
-        )
-
-    n_facs = cpm_detail["facility"].nunique()
-    if n_facs <= 12:
-        section_head("Trend", "Weekly CPM by facility")
-        fac_wk_cpm = (
-            cpm_detail[cpm_detail["total_meals"] > 0]
-            .assign(cpm=lambda d: d["waste_cost"] / d["total_meals"])
-        )
-        fig_multi = px.line(
-            fac_wk_cpm, x="week", y="cpm", color="facility",
-            title="Weekly CPM by facility",
-            labels={"week": "Week of", "cpm": "CPM ($)", "facility": "Facility"},
-            markers=True,
-            color_discrete_sequence=HC_PALETTE,
-        )
-        fig_multi.update_traces(line_width=2)
-        fig_multi.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f")
-        st.plotly_chart(chart_base(fig_multi, height=440), use_container_width=True)
-    else:
-        st.info(
-            f"Multi-line CPM chart hidden when more than 12 facilities are shown "
-            f"({n_facs} currently). Use the Facility filter to drill in."
         )
 
     heat_cpm = (
@@ -902,33 +893,7 @@ with tab_cpm:
 # TAB 3 — BY FACILITY
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_facility:
-    fac_cost = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
-    fig_fac = px.bar(
-        fac_cost, y="facility", x="waste_cost",
-        orientation="h",
-        title="Total waste cost by facility",
-        labels={"facility": "", "waste_cost": "Waste Cost ($)"},
-        color="waste_cost",
-        color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
-        text_auto="$.3s",
-    )
-    fig_fac.update_layout(
-        xaxis_tickprefix="$", xaxis_tickformat=",",
-        coloraxis_showscale=False,
-        height=max(320, len(fac_cost) * 44),
-    )
-    st.plotly_chart(chart_base(fig_fac), use_container_width=True)
-
-    section_head("Over time", "Weekly waste by facility")
-    fac_wk = f.groupby(["week", "facility"])["waste_cost"].sum().reset_index()
-    fig_fac_trend = px.bar(
-        fac_wk, x="week", y="waste_cost", color="facility",
-        title="Weekly waste cost by facility",
-        labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "facility": "Facility"},
-        color_discrete_sequence=HC_PALETTE,
-    )
-    fig_fac_trend.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", barmode="stack")
-    st.plotly_chart(chart_base(fig_fac_trend), use_container_width=True)
+    st.info("Facility breakdown has been consolidated into the Waste Trends tab.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -975,7 +940,7 @@ with tab_ingredients:
             hide_index=True,
             column_config={
                 "ingredient_name": st.column_config.TextColumn("Ingredient"),
-                "waste_cost":      st.column_config.NumberColumn("Waste cost", format="$%.2f"),
+                "waste_cost":      st.column_config.NumberColumn("Waste cost", format="$%,.2f"),
             },
         )
 
@@ -1041,16 +1006,17 @@ with tab_po:
             f"— one line = one PO × ingredient, aggregated across all lot IDs."
         )
 
+        st.caption("Filter the table below:")
         ff1, ff2, ff3 = st.columns(3)
         with ff1:
             fac_opts = ["All"] + sorted(full_waste["facility"].dropna().unique())
-            tbl_fac  = st.selectbox("Filter by facility",   fac_opts, key="po_fac")
+            tbl_fac  = st.selectbox("Facility",   fac_opts, key="po_fac")
         with ff2:
             ing_opts = ["All"] + sorted(full_waste["ingredient_name"].dropna().unique())
-            tbl_ing  = st.selectbox("Filter by ingredient", ing_opts, key="po_ing")
+            tbl_ing  = st.selectbox("Ingredient", ing_opts, key="po_ing")
         with ff3:
             rsn_opts = ["All"] + sorted(full_waste["waste_reason"].dropna().unique())
-            tbl_rsn  = st.selectbox("Filter by reason",     rsn_opts, key="po_rsn")
+            tbl_rsn  = st.selectbox("Reason",     rsn_opts, key="po_rsn")
 
         tbl_data = full_waste.copy()
         if tbl_fac != "All": tbl_data = tbl_data[tbl_data["facility"]        == tbl_fac]
@@ -1072,11 +1038,11 @@ with tab_po:
                 "facility":        st.column_config.TextColumn("Facility"),
                 "ingredient_name": st.column_config.TextColumn("Ingredient"),
                 "menu_ship_date":  st.column_config.DateColumn("Menu week",     format="MMM D, YYYY"),
-                "waste_qty":       st.column_config.NumberColumn("Waste qty",    format="%.2f"),
-                "received_qty":    st.column_config.NumberColumn("Received qty", format="%.2f"),
+                "waste_qty":       st.column_config.NumberColumn("Waste qty",    format="%,.2f"),
+                "received_qty":    st.column_config.NumberColumn("Received qty", format="%,.2f"),
                 "pct_wasted":      st.column_config.ProgressColumn(
                                        "% Wasted", min_value=0, max_value=100, format="%.1f%%"),
-                "waste_cost":      st.column_config.NumberColumn("Waste cost",   format="$%.2f"),
+                "waste_cost":      st.column_config.NumberColumn("Waste cost",   format="$%,.2f"),
                 "n_lots":          st.column_config.NumberColumn("Lots",         format="%d"),
                 "waste_reason":    st.column_config.TextColumn("Primary reason"),
             },
@@ -1222,7 +1188,7 @@ with tab_po:
                                         "Avg % Wasted per Line", min_value=0, max_value=100, format="%.1f%%"),
             "overall_pct_wasted":   st.column_config.ProgressColumn(
                                         "Overall % wasted",    min_value=0, max_value=100, format="%.1f%%"),
-            "total_waste_cost":     st.column_config.NumberColumn("Total waste cost", format="$%.2f"),
+            "total_waste_cost":     st.column_config.NumberColumn("Total waste cost", format="$%,.2f"),
         },
     )
 
@@ -1442,11 +1408,11 @@ with tab_table:
             "facility":            st.column_config.TextColumn("Facility"),
             "ingredient_name":     st.column_config.TextColumn("Ingredient"),
             "uom":                 st.column_config.TextColumn("UOM",          width="small"),
-            "quantity":            st.column_config.NumberColumn("Qty",        format="%.2f"),
+            "quantity":            st.column_config.NumberColumn("Qty",        format="%,.2f"),
             "waste_reason":        st.column_config.TextColumn("Reason"),
             "waste_reason_detail": st.column_config.TextColumn("Detail"),
             "menu_ship_date":      st.column_config.DateColumn("Menu week",    format="MMM D"),
-            "waste_cost":          st.column_config.NumberColumn("Waste cost", format="$%.2f"),
+            "waste_cost":          st.column_config.NumberColumn("Waste cost", format="$%,.2f"),
             "is_rth":              st.column_config.TextColumn("RTH",          width="small"),
         },
     )
