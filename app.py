@@ -1259,12 +1259,11 @@ with tab_shorts:
             fig_sing.update_layout(
                 yaxis={"categoryorder": "total ascending"},
                 coloraxis_showscale=False,
-                height=max(400, top_n_s * 28),
+                height=max(400, top_n_s * 28) + 50,
             )
             st.plotly_chart(chart_base(fig_sing), use_container_width=True)
 
         with r1b:
-            st.markdown('<div style="height:46px"></div>', unsafe_allow_html=True)
             rsn_counts = (
                 shorts_f.groupby("short_reason")
                 .size().reset_index(name="shorts")
