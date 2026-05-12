@@ -1324,6 +1324,107 @@ with tab_shorts:
             )
             st.plotly_chart(chart_base(fig_sheat), use_container_width=True)
 
+        # ── Ingredient drill-down ─────────────────────────────────────────
+        section_head("Drill-down", "Ingredient deep dive")
+
+        ing_options = (
+            shorts_f.groupby("shorted_ingredient")
+            .size().sort_values(ascending=False)
+            .index.tolist()
+        )
+        selected_ing = st.selectbox(
+            "Select an ingredient",
+            ing_options,
+            key="shorts_drilldown_ing",
+        )
+
+        drill = shorts_f[shorts_f["shorted_ingredient"] == selected_ing].copy()
+
+        # KPIs
+        d_total   = len(drill)
+        d_facs    = drill["facility"].nunique()
+        d_top_rsn = drill["short_reason"].mode()[0] if d_total else "—"
+        d_weeks   = drill["week"].nunique()
+
+        dk1, dk2, dk3, dk4 = st.columns(4)
+        with dk1:
+            st.markdown(kpi_card("Total Shorts", f"{d_total:,}"), unsafe_allow_html=True)
+        with dk2:
+            st.markdown(kpi_card("Facilities Affected", f"{d_facs}"), unsafe_allow_html=True)
+        with dk3:
+            st.markdown(kpi_card("Top Reason", d_top_rsn), unsafe_allow_html=True)
+        with dk4:
+            st.markdown(kpi_card("Weeks Affected", f"{d_weeks}"), unsafe_allow_html=True)
+
+        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+
+        # Charts row
+        da, db = st.columns(2)
+
+        with da:
+            wk_drill = drill.groupby("week").size().reset_index(name="shorts")
+            fig_dwk = px.bar(
+                wk_drill, x="week", y="shorts",
+                title=f"Weekly shorts — {selected_ing}",
+                labels={"week": "Menu ship week", "shorts": "Short count"},
+                color_discrete_sequence=[HC_MELON],
+            )
+            fig_dwk.update_layout(xaxis_tickformat="%b %d")
+            st.plotly_chart(chart_base(fig_dwk), use_container_width=True)
+
+        with db:
+            fac_drill = (
+                drill.groupby("facility").size()
+                .reset_index(name="shorts")
+                .sort_values("shorts", ascending=True)
+            )
+            fig_dfac = px.bar(
+                fac_drill, y="facility", x="shorts",
+                orientation="h",
+                title="Shorts by facility",
+                labels={"facility": "", "shorts": "Short count"},
+                color="shorts",
+                color_continuous_scale=[[0, HC_CREAM], [1, HC_BLUEBERRY]],
+                text_auto=True,
+            )
+            fig_dfac.update_layout(coloraxis_showscale=False)
+            st.plotly_chart(chart_base(fig_dfac), use_container_width=True)
+
+        rsn_drill = (
+            drill.groupby("short_reason").size()
+            .reset_index(name="shorts")
+            .sort_values("shorts", ascending=False)
+        )
+        fig_drsn = px.bar(
+            rsn_drill, x="short_reason", y="shorts",
+            title="Shorts by reason code",
+            labels={"short_reason": "", "shorts": "Short count"},
+            color="short_reason",
+            color_discrete_sequence=HC_PALETTE,
+            text_auto=True,
+        )
+        fig_drsn.update_layout(showlegend=False, xaxis_title=None)
+        st.plotly_chart(chart_base(fig_drsn), use_container_width=True)
+
+        # Detail table
+        section_head("Records", f"All short records — {selected_ing}")
+        drill_display = drill[[
+            "menu_ship_week", "facility", "short_reason", "brand",
+        ]].sort_values("menu_ship_week", ascending=False).copy()
+        drill_display["menu_ship_week"] = drill_display["menu_ship_week"].dt.date
+        st.dataframe(
+            drill_display,
+            use_container_width=True,
+            hide_index=True,
+            height=min(480, 40 + len(drill_display) * 35),
+            column_config={
+                "menu_ship_week": st.column_config.DateColumn("Menu Ship Week", format="MMM D, YYYY"),
+                "facility":       st.column_config.TextColumn("Facility"),
+                "short_reason":   st.column_config.TextColumn("Reason Code"),
+                "brand":          st.column_config.TextColumn("Vendor / Brand"),
+            },
+        )
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
