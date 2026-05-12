@@ -1015,29 +1015,30 @@ with tab_po:
 
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        st.markdown(kpi_card("Total POs in Period", f"{total_pos:,}"), unsafe_allow_html=True)
+        st.markdown(kpi_card("Total PO Lines", f"{total_pos:,}",
+            help_text="One line = one unique PO × ingredient combination"), unsafe_allow_html=True)
     with p2:
         st.markdown(kpi_card(
-            "Avg % of PO Wasted", f"{avg_pct:.1f}%",
-            help_text="Average across all POs: waste qty / received qty",
+            "Avg % of Line Wasted", f"{avg_pct:.1f}%",
+            help_text="Average across all PO lines: waste qty / received qty",
         ), unsafe_allow_html=True)
     with p3:
         st.markdown(kpi_card(
-            "Fully Wasted POs", f"{n_full:,}",
+            "Fully Wasted Lines", f"{n_full:,}",
             delta=f">= {int(FULL_WASTE_THRESHOLD*100)}% of received qty",
             delta_positive=(n_full == 0),
         ), unsafe_allow_html=True)
     with p4:
-        st.markdown(kpi_card("Cost of Fully Wasted POs", f"${full_cost:,.0f}"), unsafe_allow_html=True)
+        st.markdown(kpi_card("Cost of Fully Wasted Lines", f"${full_cost:,.0f}"), unsafe_allow_html=True)
 
     st.divider()
 
     if n_full > 0:
-        section_head("Alert", "Fully wasted purchase orders")
+        section_head("Alert", "Fully wasted PO lines")
         st.caption(
-            f"{n_full} PO{'s' if n_full != 1 else ''} where "
+            f"{n_full} PO line{'s' if n_full != 1 else ''} where "
             f">= {int(FULL_WASTE_THRESHOLD*100)}% of received quantity was wasted "
-            f"— aggregated across all lot IDs per PO."
+            f"— one line = one PO × ingredient, aggregated across all lot IDs."
         )
 
         ff1, ff2, ff3 = st.columns(3)
@@ -1061,7 +1062,7 @@ with tab_po:
             "waste_qty", "received_qty", "pct_wasted", "waste_cost", "n_lots", "waste_reason",
         ]].sort_values("waste_cost", ascending=False).copy()
 
-        st.caption(f"{len(full_display):,} POs shown")
+        st.caption(f"{len(full_display):,} PO lines shown")
         st.dataframe(
             full_display,
             use_container_width=True,
@@ -1081,7 +1082,7 @@ with tab_po:
             },
         )
     else:
-        st.success("No fully wasted POs in the selected period.")
+        st.success("No fully wasted PO lines in the selected period.")
 
     st.divider()
 
@@ -1091,8 +1092,8 @@ with tab_po:
         fig_dist = px.histogram(
             po_df[po_df["pct_wasted"] > 0],
             x="pct_wasted", nbins=20,
-            title="Distribution of POs by % wasted",
-            labels={"pct_wasted": "% of PO Wasted", "count": "Number of POs"},
+            title="Distribution of PO lines by % wasted",
+            labels={"pct_wasted": "% of Line Wasted", "count": "Number of PO lines"},
             color_discrete_sequence=[HC_GREEN],
         )
         fig_dist.add_vrect(
@@ -1112,7 +1113,7 @@ with tab_po:
             top_po.sort_values("waste_cost"),
             y="po_number", x="waste_cost",
             orientation="h",
-            title="Top 15 POs by waste cost",
+            title="Top 15 PO lines by waste cost",
             labels={"po_number": "PO Number", "waste_cost": "Waste Cost ($)"},
             color="full_po_wasted",
             color_discrete_map={True: HC_MELON, False: HC_GREEN},
@@ -1121,12 +1122,12 @@ with tab_po:
         )
         fig_top.update_layout(
             xaxis_tickprefix="$", xaxis_tickformat=",",
-            legend_title_text="Fully Wasted",
+            legend_title_text="Fully Wasted Line",
         )
         st.plotly_chart(chart_base(fig_top), use_container_width=True)
 
     section_head("Ingredients", "PO waste by ingredient")
-    st.caption("Aggregated across all POs and lot IDs per ingredient.")
+    st.caption("One PO line = one PO × ingredient combination, aggregated across all lot IDs.")
 
     ing_po = (
         po_df.groupby("ingredient_name")
@@ -1203,12 +1204,12 @@ with tab_po:
         hide_index=True,
         column_config={
             "ingredient_name":      st.column_config.TextColumn("Ingredient"),
-            "total_pos":            st.column_config.NumberColumn("Total POs",        format="%d"),
-            "fully_wasted_pos":     st.column_config.NumberColumn("Fully wasted POs", format="%d"),
+            "total_pos":            st.column_config.NumberColumn("Total PO Lines",        format="%d"),
+            "fully_wasted_pos":     st.column_config.NumberColumn("Fully Wasted Lines",    format="%d"),
             "pct_pos_fully_wasted": st.column_config.ProgressColumn(
-                                        "% POs fully wasted",  min_value=0, max_value=100, format="%.1f%%"),
+                                        "% Lines Fully Wasted", min_value=0, max_value=100, format="%.1f%%"),
             "avg_pct_wasted":       st.column_config.ProgressColumn(
-                                        "Avg % wasted per PO", min_value=0, max_value=100, format="%.1f%%"),
+                                        "Avg % Wasted per Line", min_value=0, max_value=100, format="%.1f%%"),
             "overall_pct_wasted":   st.column_config.ProgressColumn(
                                         "Overall % wasted",    min_value=0, max_value=100, format="%.1f%%"),
             "total_waste_cost":     st.column_config.NumberColumn("Total waste cost", format="$%.2f"),
