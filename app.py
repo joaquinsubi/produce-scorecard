@@ -710,8 +710,8 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_trends, tab_cpm, tab_facility, tab_ingredients, tab_po, tab_shorts, tab_table = st.tabs(
-    ["Waste Trends", "Cost Per Meal", "By Facility", "By Ingredient", "Purchase Orders", "Shorts Log", "Detail Table"]
+tab_trends, tab_cpm, tab_ingredients, tab_po, tab_shorts, tab_table = st.tabs(
+    ["Waste Trends", "Cost Per Meal", "By Ingredient", "Purchase Orders", "Shorts Log", "Detail Table"]
 )
 
 
@@ -892,8 +892,6 @@ with tab_cpm:
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — BY FACILITY
 # ══════════════════════════════════════════════════════════════════════════════
-with tab_facility:
-    st.info("Facility breakdown has been consolidated into the Waste Trends tab.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
