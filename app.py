@@ -1281,7 +1281,7 @@ with tab_shorts:
             fig_srsn.update_layout(
                 showlegend=False,
                 xaxis_title=None,
-                height=max(400, top_n_s * 28) + 50,
+                height=max(400, top_n_s * 28) + 75,
             )
             st.plotly_chart(chart_base(fig_srsn), use_container_width=True)
 
