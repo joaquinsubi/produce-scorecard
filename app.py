@@ -657,7 +657,7 @@ fac_str = sel_facility if sel_facility != "All" else f"{f['facility'].nunique()}
 
 st.markdown(
     f'<div class="hc-eyebrow-green">Internal &nbsp;·&nbsp; Operations</div>'
-    f'<p class="hc-title">Produce Waste Scorecard</p>'
+    f'<p class="hc-title">Produce Scorecard</p>'
     f'<p class="hc-eyebrow">{range_str} &nbsp;·&nbsp; {fac_str} &nbsp;·&nbsp; {len(f):,} records</p>',
     unsafe_allow_html=True,
 )
@@ -710,8 +710,8 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_trends, tab_cpm, tab_ingredients, tab_po, tab_shorts, tab_table = st.tabs(
-    ["Waste Trends", "Cost Per Meal", "By Ingredient", "Purchase Orders", "Shorts Log", "Detail Table"]
+tab_shorts, tab_trends, tab_ingredients, tab_cpm, tab_po, tab_table = st.tabs(
+    ["Shorts Log", "Waste Trends", "By Ingredient", "Cost Per Meal", "Purchase Orders", "Detail Table"]
 )
 
 
