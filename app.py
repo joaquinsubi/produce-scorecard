@@ -1174,23 +1174,33 @@ with tab_po:
         st.plotly_chart(chart_base(fig_ing_pct), use_container_width=True)
 
     with ci2:
-        fig_ing_cost = px.bar(
-            top_ing.sort_values("total_waste_cost"),
-            y="ingredient_name", x="total_waste_cost",
-            orientation="h",
-            title=f"Top {top_n_ing} ingredients — total PO waste cost",
-            labels={"ingredient_name": "", "total_waste_cost": "Total Waste Cost ($)"},
-            color="avg_pct_wasted",
-            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
-            text_auto="$.3s",
+        po_heat = po_df.copy()
+        _d = pd.to_datetime(po_heat["menu_ship_date"])
+        po_heat["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize()
+        top_ing_names = top_ing["ingredient_name"].tolist()
+        po_heat = po_heat[po_heat["ingredient_name"].isin(top_ing_names)]
+
+        pivot = (
+            po_heat.groupby(["ingredient_name", "week"])["waste_cost"]
+            .sum()
+            .unstack(fill_value=0)
         )
-        fig_ing_cost.update_layout(
-            xaxis_tickprefix="$", xaxis_tickformat=",",
-            yaxis={"categoryorder": "total ascending"},
-            coloraxis_showscale=False,
+        pivot = pivot.loc[pivot.sum(axis=1).sort_values(ascending=True).index]
+
+        fig_ing_heat = px.imshow(
+            pivot,
+            title=f"Top {top_n_ing} ingredients — waste cost by week",
+            labels={"x": "Week of", "y": "", "color": "Waste cost ($)"},
+            color_continuous_scale=[[0, "#FFFFFF"], [0.2, HC_LEMON], [1, HC_MELON]],
+            aspect="auto",
+        )
+        fig_ing_heat.update_layout(
             height=max(400, top_n_ing * 28),
+            coloraxis_colorbar=dict(title="$", tickprefix="$", tickformat=","),
+            xaxis_tickformat="%b %d",
+            xaxis_title=None,
         )
-        st.plotly_chart(chart_base(fig_ing_cost), use_container_width=True)
+        st.plotly_chart(chart_base(fig_ing_heat), use_container_width=True)
 
     section_head("Summary", "Ingredient summary table")
     ing_display = ing_po.sort_values("avg_pct_wasted", ascending=False).copy()
