@@ -360,7 +360,8 @@ def load_raw():
     menus_raw  = book.worksheet("Menus").get_all_values()
     shorts_raw = book.worksheet("Shorts Logs").get_all_values()
     po_raw     = book.worksheet("Purchase Orders").get_all_values()
-    return wms_raw, meals_raw, menus_raw, shorts_raw, po_raw
+    rvw_raw    = book.worksheet("Received_vs_Wasted").get_all_values()
+    return wms_raw, meals_raw, menus_raw, shorts_raw, po_raw, rvw_raw
 
 
 def parse_wms(raw: list) -> pd.DataFrame:
@@ -472,34 +473,76 @@ def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
-def build_po_analysis(wms: pd.DataFrame) -> pd.DataFrame:
-    """One row per PO-ingredient combination across all lot IDs."""
-    po = wms[wms["po_number"].astype(str).str.strip().ne("")].copy()
-    po["po_number"] = po["po_number"].astype(str).str.strip()
+def parse_rvw(raw: list) -> pd.DataFrame:
+    """Parse Received_vs_Wasted sheet.
+    Col A=menu_ship_week, B=facility, C=ingredient_id, D=po_number,
+    E=uom, F=total_received, G=total_wasted, H=pct_wasted
+    """
+    if len(raw) < 2:
+        return pd.DataFrame()
+    df = pd.DataFrame(raw[1:])
+    col_map = {0: "menu_ship_week", 1: "facility", 2: "ingredient_id",
+               3: "po_number", 5: "total_received", 6: "total_wasted", 7: "pct_wasted_rvw"}
+    valid = {k: v for k, v in col_map.items() if k < df.shape[1]}
+    df = df.rename(columns=valid)[list(valid.values())]
+    df["po_number"]      = df["po_number"].astype(str).str.strip()
+    df["ingredient_id"]  = df["ingredient_id"].astype(str).str.strip()
+    for col in ["total_received", "total_wasted"]:
+        df[col] = pd.to_numeric(
+            df[col].astype(str).str.replace(",", "").str.replace("$", "").str.strip(),
+            errors="coerce"
+        ).fillna(0)
+    df["pct_wasted_rvw"] = pd.to_numeric(
+        df["pct_wasted_rvw"].astype(str).str.replace("%", "").str.strip(),
+        errors="coerce"
+    )
+    return df.dropna(subset=["po_number"])
 
-    agg = po.groupby(["po_number", "ingredient_name"]).agg(
+
+def build_po_analysis(wms: pd.DataFrame, rvw: pd.DataFrame) -> pd.DataFrame:
+    """One row per PO-ingredient combination. Uses Received_vs_Wasted for
+    correct total received/wasted quantities across all lot IDs."""
+    po = wms[wms["po_number"].astype(str).str.strip().ne("")].copy()
+    po["po_number"]     = po["po_number"].astype(str).str.strip()
+    po["ingredient_id"] = po["ingredient_id"].astype(str).str.strip()
+
+    agg = po.groupby(["po_number", "ingredient_id", "ingredient_name"]).agg(
         facility       = ("facility",       "first"),
         menu_ship_date = ("menu_ship_date", "first"),
-        waste_qty      = ("quantity",       "sum"),
-        received_qty   = ("received_qty",   "sum"),
         waste_cost     = ("waste_cost",     "sum"),
         waste_reason   = ("waste_reason",   lambda x: x.mode()[0] if not x.mode().empty else ""),
         n_lots         = ("lot_id",         "nunique"),
+        wms_waste_qty  = ("quantity",       "sum"),
+        wms_recv_qty   = ("received_qty",   "sum"),
     ).reset_index()
 
-    agg["pct_wasted"]     = (agg["waste_qty"] / agg["received_qty"].replace(0, np.nan) * 100).clip(upper=100)
-    agg["full_po_wasted"] = agg["pct_wasted"] >= (FULL_WASTE_THRESHOLD * 100)
+    # Join Received_vs_Wasted for correct total quantities
+    if not rvw.empty:
+        rvw_lookup = rvw[["po_number", "ingredient_id",
+                           "total_received", "total_wasted", "pct_wasted_rvw"]].drop_duplicates()
+        agg = agg.merge(rvw_lookup, on=["po_number", "ingredient_id"], how="left")
+        agg["received_qty"] = agg["total_received"].fillna(agg["wms_recv_qty"])
+        agg["waste_qty"]    = agg["total_wasted"].fillna(agg["wms_waste_qty"])
+        agg["pct_wasted"]   = agg["pct_wasted_rvw"].fillna(
+            (agg["wms_waste_qty"] / agg["wms_recv_qty"].replace(0, np.nan) * 100).clip(upper=100)
+        )
+    else:
+        agg["received_qty"] = agg["wms_recv_qty"]
+        agg["waste_qty"]    = agg["wms_waste_qty"]
+        agg["pct_wasted"]   = (agg["waste_qty"] / agg["received_qty"].replace(0, np.nan) * 100).clip(upper=100)
 
+    agg["full_po_wasted"] = agg["pct_wasted"] >= (FULL_WASTE_THRESHOLD * 100)
     return agg
 
 
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
 
 try:
-    wms_raw, meals_raw, menus_raw, shorts_raw, po_raw = load_raw()
+    wms_raw, meals_raw, menus_raw, shorts_raw, po_raw, rvw_raw = load_raw()
     wms_df    = parse_wms(wms_raw)
     meals_df  = parse_meals(meals_raw)
     shorts_df = parse_shorts(shorts_raw)
+    rvw_df    = parse_rvw(rvw_raw)
 
     # Parse Purchase Orders sheet: col A=PO#, col B=facility, col K=ship week, col N=case cost
     _po_rows = []
@@ -1013,7 +1056,7 @@ with tab_ingredients:
 # TAB 5 — PURCHASE ORDERS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_po:
-    po_df = build_po_analysis(f)
+    po_df = build_po_analysis(f, rvw_df)
 
     full_waste = po_df[po_df["full_po_wasted"]]
     total_pos  = len(po_df)
