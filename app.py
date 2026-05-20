@@ -531,6 +531,7 @@ def build_po_analysis(wms: pd.DataFrame, rvw: pd.DataFrame) -> pd.DataFrame:
         agg["waste_qty"]    = agg["wms_waste_qty"]
         agg["pct_wasted"]   = (agg["waste_qty"] / agg["received_qty"].replace(0, np.nan) * 100).clip(upper=100)
 
+    agg["pct_wasted"]     = agg["pct_wasted"].clip(upper=100)
     agg["full_po_wasted"] = agg["pct_wasted"] >= (FULL_WASTE_THRESHOLD * 100)
     return agg
 
