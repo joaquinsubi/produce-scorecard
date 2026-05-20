@@ -417,8 +417,18 @@ def parse_shorts(raw: list) -> pd.DataFrame:
     valid = {k: v for k, v in col_map.items() if k < df.shape[1]}
     df    = df.rename(columns=valid)[list(valid.values())]
 
+    # Normalize facility names to match WMS names
+    FACILITY_MAP = {
+        "chicago midway": "Chicago",
+        "chicago":        "Chicago",
+        "skyview":        "Skyview",
+        "san bernardino": "San Bernardino",
+        "baltimore":      "Baltimore",
+    }
+
     df["menu_ship_week"]     = pd.to_datetime(df["menu_ship_week"], errors="coerce")
-    df["facility"]           = df["facility"].astype(str).str.strip()
+    df["facility"]           = (df["facility"].astype(str).str.strip()
+                                 .apply(lambda x: FACILITY_MAP.get(x.lower(), x)))
     df["shorted_ingredient"] = df["shorted_ingredient"].astype(str).str.strip()
     df["short_reason"]       = df["short_reason"].astype(str).str.strip()
     df["category"]           = df["category"].astype(str).str.strip()
