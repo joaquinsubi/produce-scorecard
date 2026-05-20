@@ -214,6 +214,22 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 
 /* ── slider ── */
 [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] { background: #008600 !important; }
+
+/* ── equal-height KPI card columns ── */
+[data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div {
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div[data-testid="stMarkdownContainer"] {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div[data-testid="stMarkdownContainer"] > div {
+    height: 100% !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -317,7 +333,7 @@ def kpi_card(label: str, value: str, delta: str = None,
     return (
         f'<div{title_attr} style="background:#FFFFFF;border:1px solid {HC_BORDER};border-radius:16px;'
         f'padding:22px 24px 20px;box-shadow:0 1px 3px rgba(11,53,90,0.06);'
-        f'min-height:128px;height:100%">'
+        f'min-height:140px;height:100%;box-sizing:border-box;">'
         f'<div style="font-family:Karla,sans-serif;font-size:10.5px;font-weight:700;'
         f'letter-spacing:0.14em;text-transform:uppercase;color:{HC_MUTED};margin-bottom:10px">{label}</div>'
         f'<div style="font-family:\'Bree Serif\',Georgia,serif;font-size:32px;line-height:1;'
@@ -343,7 +359,8 @@ def load_raw():
     meals_raw  = book.worksheet("Total Meals").get_all_values()
     menus_raw  = book.worksheet("Menus").get_all_values()
     shorts_raw = book.worksheet("Shorts Logs").get_all_values()
-    return wms_raw, meals_raw, menus_raw, shorts_raw
+    po_raw     = book.worksheet("Purchase Orders").get_all_values()
+    return wms_raw, meals_raw, menus_raw, shorts_raw, po_raw
 
 
 def parse_wms(raw: list) -> pd.DataFrame:
@@ -479,10 +496,19 @@ def build_po_analysis(wms: pd.DataFrame) -> pd.DataFrame:
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
 
 try:
-    wms_raw, meals_raw, menus_raw, shorts_raw = load_raw()
+    wms_raw, meals_raw, menus_raw, shorts_raw, po_raw = load_raw()
     wms_df    = parse_wms(wms_raw)
     meals_df  = parse_meals(meals_raw)
     shorts_df = parse_shorts(shorts_raw)
+
+    # Sum CASE_COST from column N (index 13) of the Purchase Orders sheet
+    total_case_cost = 0.0
+    for _row in po_raw[1:]:
+        if len(_row) > 13:
+            try:
+                total_case_cost += float(str(_row[13]).replace(",", "").replace("$", "").strip())
+            except (ValueError, TypeError):
+                pass
     menu_weeks = sorted(set(
         pd.to_datetime(row[1], errors="coerce")
         for row in menus_raw[1:]
@@ -708,12 +734,17 @@ with k3:
     ), unsafe_allow_html=True)
 
 with k4:
-    st.markdown(kpi_card(
-        "True Disposal Cost",
-        f"${disposal_cost:,.0f}",
-        delta=f"{disposal_pct:.1f}% of total",
-        delta_positive=None,
-    ), unsafe_allow_html=True)
+    if total_case_cost > 0:
+        pct_cost_wasted = total_cost / total_case_cost * 100
+        st.markdown(kpi_card(
+            "% of Cost Wasted",
+            f"{pct_cost_wasted:.1f}%",
+            delta=f"${total_cost:,.0f} waste / ${total_case_cost:,.0f} purchased",
+            delta_positive=None,
+            help_text="Total waste cost ÷ total case cost from Purchase Orders",
+        ), unsafe_allow_html=True)
+    else:
+        st.markdown(kpi_card("% of Cost Wasted", "—"), unsafe_allow_html=True)
 
 st.divider()
 
