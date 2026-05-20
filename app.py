@@ -501,14 +501,20 @@ try:
     meals_df  = parse_meals(meals_raw)
     shorts_df = parse_shorts(shorts_raw)
 
-    # Sum CASE_COST from column N (index 13) of the Purchase Orders sheet
-    total_case_cost = 0.0
+    # Parse Purchase Orders sheet: col A=PO#, col B=facility, col K=ship week, col N=case cost
+    _po_rows = []
     for _row in po_raw[1:]:
         if len(_row) > 13:
             try:
-                total_case_cost += float(str(_row[13]).replace(",", "").replace("$", "").strip())
+                _cost = float(str(_row[13]).replace(",", "").replace("$", "").strip())
             except (ValueError, TypeError):
-                pass
+                continue
+            _date = pd.to_datetime(_row[10], errors="coerce") if len(_row) > 10 else pd.NaT
+            _fac  = str(_row[1]).strip() if len(_row) > 1 else ""
+            _po_rows.append({"menu_ship_week": _date, "facility": _fac, "case_cost": _cost})
+    po_costs_df = pd.DataFrame(_po_rows) if _po_rows else pd.DataFrame(
+        columns=["menu_ship_week", "facility", "case_cost"]
+    )
     menu_weeks = sorted(set(
         pd.to_datetime(row[1], errors="coerce")
         for row in menus_raw[1:]
@@ -647,6 +653,21 @@ else:
 # ── KPI CALCULATIONS ──────────────────────────────────────────────────────────
 
 total_cost          = f["waste_cost"].sum()
+
+# Filter Purchase Orders CASE_COST by same date + facility as main data
+_pc = po_costs_df.copy()
+if not _pc.empty:
+    if selected_weeks is not None:
+        _pc = _pc[_pc["menu_ship_week"].dt.date.isin(selected_weeks)]
+    else:
+        _pc = _pc[
+            (_pc["menu_ship_week"].dt.date >= date_range[0]) &
+            (_pc["menu_ship_week"].dt.date <= date_range[1])
+        ]
+    if sel_facility != "All":
+        _pc = _pc[_pc["facility"].str.lower() == sel_facility.lower()]
+total_case_cost = _pc["case_cost"].sum() if not _pc.empty else 0.0
+
 cpm_detail          = build_cpm(f, meals_f)
 total_meals_matched = cpm_detail["total_meals"].sum()
 overall_cpm         = total_cost / total_meals_matched if total_meals_matched > 0 else np.nan
@@ -1193,62 +1214,6 @@ with tab_po:
         )
         st.plotly_chart(chart_base(fig_ing_heat), use_container_width=True)
 
-    section_head("Summary", "Ingredient summary table")
-    ing_display = ing_po.sort_values("avg_pct_wasted", ascending=False).copy()
-    ing_display = ing_display[[
-        "ingredient_name", "total_pos", "fully_wasted_pos",
-        "pct_pos_fully_wasted", "avg_pct_wasted", "overall_pct_wasted", "total_waste_cost",
-    ]]
-    st.dataframe(
-        ing_display,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "ingredient_name":      st.column_config.TextColumn("Ingredient"),
-            "total_pos":            st.column_config.NumberColumn("Total PO Lines",        format="%d"),
-            "fully_wasted_pos":     st.column_config.NumberColumn("Fully Wasted Lines",    format="%d"),
-            "pct_pos_fully_wasted": st.column_config.ProgressColumn(
-                                        "% Lines Fully Wasted", min_value=0, max_value=100, format="%.1f%%"),
-            "avg_pct_wasted":       st.column_config.ProgressColumn(
-                                        "Avg % Wasted per Line", min_value=0, max_value=100, format="%.1f%%"),
-            "overall_pct_wasted":   st.column_config.ProgressColumn(
-                                        "Overall % wasted",    min_value=0, max_value=100, format="%.1f%%"),
-            "total_waste_cost":     st.column_config.NumberColumn("Total waste cost", format="$%,.2f"),
-        },
-    )
-
-    st.divider()
-
-    scatter_data = po_df[(po_df["received_qty"] > 0) & (po_df["waste_qty"] > 0)]
-    fig_scatter = px.scatter(
-        scatter_data,
-        x="received_qty", y="waste_qty",
-        color="full_po_wasted",
-        color_discrete_map={True: HC_MELON, False: HC_GREEN},
-        hover_data=["po_number", "ingredient_name", "facility", "pct_wasted"],
-        title="Received quantity vs. waste quantity — log scale, by PO",
-        labels={
-            "received_qty":   "Received Qty (log)",
-            "waste_qty":      "Waste Qty (log)",
-            "full_po_wasted": "Fully Wasted",
-        },
-        log_x=True, log_y=True, opacity=0.7,
-    )
-    log_min = max(scatter_data[["received_qty", "waste_qty"]].min().min(), 0.01)
-    log_max = scatter_data[["received_qty", "waste_qty"]].max().max()
-    fig_scatter.add_shape(
-        type="line",
-        x0=log_min, y0=log_min, x1=log_max, y1=log_max,
-        line=dict(color=HC_MELON, dash="dash", width=1.5),
-    )
-    fig_scatter.add_annotation(
-        x=np.log10(log_max) * 0.85, y=np.log10(log_max) * 0.97,
-        text="100% wasted line",
-        showarrow=False,
-        font=dict(color=HC_MELON, size=11),
-        xref="x", yref="y",
-    )
-    st.plotly_chart(chart_base(fig_scatter, height=450), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
