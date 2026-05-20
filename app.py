@@ -398,7 +398,7 @@ def parse_wms(raw: list) -> pd.DataFrame:
     df["waste_cost"]   = pd.to_numeric(df["waste_cost"],   errors="coerce").fillna(0) * -1
 
     df["facility"] = df["facility"].astype(str).str.strip()
-    df["week"]     = (df["menu_ship_date"] - pd.to_timedelta(df["menu_ship_date"].dt.dayofweek, unit="D")).dt.normalize()
+    df["week"]     = (df["menu_ship_date"] - pd.to_timedelta(df["menu_ship_date"].dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
 
     return df.dropna(subset=["created_date"])
 
@@ -450,7 +450,7 @@ def parse_shorts(raw: list) -> pd.DataFrame:
     df["shorted_ingredient"] = df["shorted_ingredient"].astype(str).str.strip()
     df["short_reason"]       = df["short_reason"].astype(str).str.strip()
     df["category"]           = df["category"].astype(str).str.strip()
-    df["week"]               = (df["menu_ship_week"] - pd.to_timedelta(df["menu_ship_week"].dt.dayofweek, unit="D")).dt.normalize()
+    df["week"]               = (df["menu_ship_week"] - pd.to_timedelta(df["menu_ship_week"].dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
 
     # Only produce shorts
     df = df[df["category"].str.lower() == "produce"]
@@ -468,7 +468,7 @@ def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
 
     merged         = waste_by_key.merge(meals_by_key, on=["facility", "menu_ship_date"], how="left")
     _d = pd.to_datetime(merged["menu_ship_date"])
-    merged["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize()
+    merged["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
     merged["cpm"]  = merged["waste_cost"] / merged["total_meals"].replace(0, np.nan)
     return merged
 
@@ -1232,7 +1232,7 @@ with tab_po:
     with ci2:
         po_heat = po_df.copy()
         _d = pd.to_datetime(po_heat["menu_ship_date"])
-        po_heat["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize()
+        po_heat["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
         top_ing_names = top_ing["ingredient_name"].tolist()
         po_heat = po_heat[po_heat["ingredient_name"].isin(top_ing_names)]
 
