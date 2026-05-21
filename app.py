@@ -134,7 +134,10 @@ section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
 section[data-testid="stSidebar"] [data-testid="stPills"] {
     gap: 4px !important;
 }
-section[data-testid="stSidebar"] [data-testid="stPills"] button {
+section[data-testid="stSidebar"] [data-testid="stPills"] button,
+section[data-testid="stSidebar"] [data-testid="stBaseButton-pills"],
+section[data-testid="stSidebar"] button[kind="pills"],
+section[data-testid="stSidebar"] .stPills button {
     background: #1A4F7A !important;
     border: 1px solid rgba(254,249,245,0.25) !important;
     border-radius: 999px !important;
@@ -146,7 +149,10 @@ section[data-testid="stSidebar"] [data-testid="stPills"] button {
     white-space: nowrap !important;
 }
 section[data-testid="stSidebar"] [data-testid="stPills"] button[aria-pressed="true"],
-section[data-testid="stSidebar"] [data-testid="stPills"] button[data-active="true"] {
+section[data-testid="stSidebar"] [data-testid="stPills"] button[data-active="true"],
+section[data-testid="stSidebar"] [data-testid="stBaseButton-pills"][aria-pressed="true"],
+section[data-testid="stSidebar"] [data-testid="stBaseButton-pills"][data-active="true"],
+section[data-testid="stSidebar"] button[kind="pills"][aria-pressed="true"] {
     background: #FEF9F5 !important;
     border-color: #FEF9F5 !important;
     color: #0B355A !important;
