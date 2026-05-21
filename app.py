@@ -654,29 +654,6 @@ with st.sidebar:
         st.rerun()
     st.caption(f"Last pull: {datetime.now().strftime('%b %d · %I:%M %p')}")
 
-    st.divider()
-    if st.checkbox("🔧 Debug dates", value=False):
-        sample = (
-            wms_df[["menu_ship_date", "week"]]
-            .dropna()
-            .drop_duplicates()
-            .sort_values("menu_ship_date")
-            .head(8)
-        )
-        sample["menu_ship_date"] = sample["menu_ship_date"].dt.strftime("%Y-%m-%d (%a)")
-        st.caption("menu_ship_date → week (WMS)")
-        st.dataframe(sample, use_container_width=True, hide_index=True)
-        if not shorts_df.empty:
-            ssample = (
-                shorts_df[["menu_ship_week", "week"]]
-                .dropna()
-                .drop_duplicates()
-                .sort_values("menu_ship_week")
-                .head(8)
-            )
-            ssample["menu_ship_week"] = ssample["menu_ship_week"].dt.strftime("%Y-%m-%d (%a)")
-            st.caption("menu_ship_week → week (Shorts)")
-            st.dataframe(ssample, use_container_width=True, hide_index=True)
 
 
 # ── APPLY FILTERS ─────────────────────────────────────────────────────────────
