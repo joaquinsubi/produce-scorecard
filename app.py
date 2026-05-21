@@ -135,10 +135,10 @@ section[data-testid="stSidebar"] [data-testid="stPills"] {
     gap: 4px !important;
 }
 section[data-testid="stSidebar"] [data-testid="stPills"] button {
-    background: rgba(254,249,245,0.10) !important;
-    border: 1px solid rgba(254,249,245,0.15) !important;
+    background: #1A4F7A !important;
+    border: 1px solid rgba(254,249,245,0.25) !important;
     border-radius: 999px !important;
-    color: rgba(254,249,245,0.75) !important;
+    color: rgba(254,249,245,0.85) !important;
     font-family: 'Karla',sans-serif !important;
     font-size: 11px !important;
     font-weight: 700 !important;
