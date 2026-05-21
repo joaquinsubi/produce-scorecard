@@ -215,6 +215,37 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 /* ── slider ── */
 [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] { background: #008600 !important; }
 
+/* ── expanders ── */
+[data-testid="stExpander"] {
+    border: 1px solid #E6E0D8 !important;
+    border-radius: 12px !important;
+    background: #FFFFFF !important;
+    margin-bottom: 12px !important;
+    overflow: hidden !important;
+}
+[data-testid="stExpander"] summary {
+    background: #FFFFFF !important;
+    padding: 14px 20px !important;
+    font-family: 'Karla', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    color: #0B355A !important;
+    border-radius: 12px !important;
+}
+[data-testid="stExpander"] summary:hover {
+    background: #F5F0EB !important;
+}
+[data-testid="stExpander"] summary svg {
+    color: #008600 !important;
+    fill: #008600 !important;
+}
+[data-testid="stExpander"] > div:last-child {
+    padding: 8px 20px 20px !important;
+    background: #FFFFFF !important;
+}
+
 /* ── equal-height KPI card columns ── */
 [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
 [data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div {
