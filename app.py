@@ -74,12 +74,12 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
     font-family: 'Karla',sans-serif;
     font-size: 11px; font-weight: 700;
     letter-spacing: 0.14em; text-transform: uppercase;
-    color: #008600; margin: 0 0 4px;
+    color: #008600 !important; margin: 0 0 4px;
 }
 .hc-section-head__title {
     font-family: 'Bree Serif', Georgia, serif;
     font-size: 22px; line-height: 1.15;
-    color: #1A1A1A; margin: 0;
+    color: #1A1A1A !important; margin: 0;
 }
 
 /* ── dividers ── */
@@ -244,6 +244,7 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 [data-testid="stExpander"] > div:last-child {
     padding: 8px 20px 20px !important;
     background: #FFFFFF !important;
+    color: #1A1A1A !important;
 }
 
 /* ── equal-height KPI card columns ── */
