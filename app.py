@@ -307,6 +307,18 @@ def section_head(eyebrow: str, title: str):
     )
 
 
+def fmt_weeks(df: pd.DataFrame, col: str = "week") -> pd.DataFrame:
+    """Sort by the ISO week string then reformat to 'Mmm D' for display.
+    Using category strings prevents Plotly's JS from UTC→local conversion."""
+    df = df.sort_values(col).copy()
+    df[col] = (
+        pd.to_datetime(df[col], errors="coerce")
+        .dt.strftime("%b %d")
+        .str.replace(r" 0(\d)$", r" \1", regex=True)  # strip leading zero: "May 01" → "May 1"
+    )
+    return df
+
+
 def kpi_card(label: str, value: str, delta: str = None,
              delta_positive: bool = None, help_text: str = None) -> str:
     """
@@ -398,7 +410,7 @@ def parse_wms(raw: list) -> pd.DataFrame:
     df["waste_cost"]   = pd.to_numeric(df["waste_cost"],   errors="coerce").fillna(0) * -1
 
     df["facility"] = df["facility"].astype(str).str.strip()
-    df["week"]     = (df["menu_ship_date"] - pd.to_timedelta(df["menu_ship_date"].dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
+    df["week"]     = (df["menu_ship_date"] - pd.to_timedelta(df["menu_ship_date"].dt.dayofweek, unit="D")).dt.normalize().dt.strftime("%Y-%m-%d")
 
     return df.dropna(subset=["created_date"])
 
@@ -450,7 +462,7 @@ def parse_shorts(raw: list) -> pd.DataFrame:
     df["shorted_ingredient"] = df["shorted_ingredient"].astype(str).str.strip()
     df["short_reason"]       = df["short_reason"].astype(str).str.strip()
     df["category"]           = df["category"].astype(str).str.strip()
-    df["week"]               = (df["menu_ship_week"] - pd.to_timedelta(df["menu_ship_week"].dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
+    df["week"]               = (df["menu_ship_week"] - pd.to_timedelta(df["menu_ship_week"].dt.dayofweek, unit="D")).dt.normalize().dt.strftime("%Y-%m-%d")
 
     # Only produce shorts
     df = df[df["category"].str.lower() == "produce"]
@@ -468,7 +480,7 @@ def build_cpm(wms: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
 
     merged         = waste_by_key.merge(meals_by_key, on=["facility", "menu_ship_date"], how="left")
     _d = pd.to_datetime(merged["menu_ship_date"])
-    merged["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
+    merged["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize().dt.strftime("%Y-%m-%d")
     merged["cpm"]  = merged["waste_cost"] / merged["total_meals"].replace(0, np.nan)
     return merged
 
@@ -641,6 +653,30 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
     st.caption(f"Last pull: {datetime.now().strftime('%b %d · %I:%M %p')}")
+
+    st.divider()
+    if st.checkbox("🔧 Debug dates", value=False):
+        sample = (
+            wms_df[["menu_ship_date", "week"]]
+            .dropna()
+            .drop_duplicates()
+            .sort_values("menu_ship_date")
+            .head(8)
+        )
+        sample["menu_ship_date"] = sample["menu_ship_date"].dt.strftime("%Y-%m-%d (%a)")
+        st.caption("menu_ship_date → week (WMS)")
+        st.dataframe(sample, use_container_width=True, hide_index=True)
+        if not shorts_df.empty:
+            ssample = (
+                shorts_df[["menu_ship_week", "week"]]
+                .dropna()
+                .drop_duplicates()
+                .sort_values("menu_ship_week")
+                .head(8)
+            )
+            ssample["menu_ship_week"] = ssample["menu_ship_week"].dt.strftime("%Y-%m-%d (%a)")
+            st.caption("menu_ship_week → week (Shorts)")
+            st.dataframe(ssample, use_container_width=True, hide_index=True)
 
 
 # ── APPLY FILTERS ─────────────────────────────────────────────────────────────
@@ -869,25 +905,26 @@ with tab_trends:
         st.plotly_chart(chart_base(fig2), use_container_width=True)
 
     section_head("By facility", "Weekly waste cost by facility")
-    fac_wk_tr = f.groupby(["week", "facility"])["waste_cost"].sum().reset_index()
+    fac_wk_tr = fmt_weeks(f.groupby(["week", "facility"])["waste_cost"].sum().reset_index())
     fig_fac_wk = px.bar(
         fac_wk_tr, x="week", y="waste_cost", color="facility",
         title="Weekly waste cost by facility",
         labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "facility": "Facility"},
         color_discrete_sequence=HC_PALETTE,
     )
-    fig_fac_wk.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", barmode="stack")
+    fig_fac_wk.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", barmode="stack",
+                              xaxis_type="category")
     st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
 
     section_head("Over time", "Weekly waste by reason")
-    wk_reason = f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index()
+    wk_reason = fmt_weeks(f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index())
     fig3 = px.area(
         wk_reason, x="week", y="waste_cost", color="waste_reason",
         title="Weekly waste cost — stacked by reason",
         labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "waste_reason": "Reason"},
         color_discrete_sequence=HC_PALETTE,
     )
-    fig3.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",")
+    fig3.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", xaxis_type="category")
     st.plotly_chart(chart_base(fig3), use_container_width=True)
 
 
@@ -896,7 +933,7 @@ with tab_trends:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_cpm:
 
-    wk_cpm = (
+    wk_cpm = fmt_weeks(
         cpm_detail.groupby("week")
         .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
                if g["total_meals"].sum() > 0 else np.nan)
@@ -912,7 +949,7 @@ with tab_cpm:
         line_width=2,
         marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
     )
-    fig_cpm1.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f")
+    fig_cpm1.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f", xaxis_type="category")
     st.plotly_chart(chart_base(fig_cpm1), use_container_width=True)
 
     section_head("By facility", "CPM breakdown")
@@ -979,7 +1016,8 @@ with tab_cpm:
     if not heat_cpm.empty:
         section_head("Heatmap", "CPM by facility x week")
         heat_cpm.columns = [
-            c.strftime("%m/%d") if hasattr(c, "strftime") else str(c)
+            pd.Timestamp(c).strftime("%b %d").replace(" 0", "  ").strip() if isinstance(c, str) and c
+            else (c.strftime("%b %d").replace(" 0", "  ").strip() if hasattr(c, "strftime") else str(c))
             for c in heat_cpm.columns
         ]
         fig_heat = px.imshow(
@@ -1232,7 +1270,7 @@ with tab_po:
     with ci2:
         po_heat = po_df.copy()
         _d = pd.to_datetime(po_heat["menu_ship_date"])
-        po_heat["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize() + pd.Timedelta(hours=12)
+        po_heat["week"] = (_d - pd.to_timedelta(_d.dt.dayofweek, unit="D")).dt.normalize().dt.strftime("%Y-%m-%d")
         top_ing_names = top_ing["ingredient_name"].tolist()
         po_heat = po_heat[po_heat["ingredient_name"].isin(top_ing_names)]
 
@@ -1242,6 +1280,13 @@ with tab_po:
             .unstack(fill_value=0)
         )
         pivot = pivot.loc[pivot.sum(axis=1).sort_values(ascending=True).index]
+        # Convert YYYY-MM-DD column headers to "Mmm D" strings so Plotly
+        # treats them as categories rather than UTC timestamps.
+        pivot.columns = [
+            pd.Timestamp(c).strftime("%b %d").replace(" 0", "  ").strip()
+            if isinstance(c, str) else str(c)
+            for c in pivot.columns
+        ]
 
         fig_ing_heat = px.imshow(
             pivot,
@@ -1253,7 +1298,6 @@ with tab_po:
         fig_ing_heat.update_layout(
             height=max(400, top_n_ing * 28),
             coloraxis_colorbar=dict(title="$", tickprefix="$", tickformat=","),
-            xaxis_tickformat="%b %d",
             xaxis_title=None,
         )
         st.plotly_chart(chart_base(fig_ing_heat), use_container_width=True)
@@ -1338,7 +1382,7 @@ with tab_shorts:
 
         # ── Weekly trend ──────────────────────────────────────────────────
         section_head("Over time", "Weekly produce shorts")
-        wk_shorts = shorts_f.groupby("week").size().reset_index(name="shorts")
+        wk_shorts = fmt_weeks(shorts_f.groupby("week").size().reset_index(name="shorts"))
         fig_swk = px.line(
             wk_shorts, x="week", y="shorts",
             title="Weekly produce short count",
@@ -1349,6 +1393,7 @@ with tab_shorts:
             line_width=2,
             marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
         )
+        fig_swk.update_layout(xaxis_type="category")
         st.plotly_chart(chart_base(fig_swk), use_container_width=True)
 
         # ── Reason × facility heatmap ─────────────────────────────────────
@@ -1412,14 +1457,14 @@ with tab_shorts:
         da, db = st.columns(2)
 
         with da:
-            wk_drill = drill.groupby("week").size().reset_index(name="shorts")
+            wk_drill = fmt_weeks(drill.groupby("week").size().reset_index(name="shorts"))
             fig_dwk = px.bar(
                 wk_drill, x="week", y="shorts",
                 title=f"Weekly shorts — {selected_ing}",
                 labels={"week": "Menu ship week", "shorts": "Short count"},
                 color_discrete_sequence=[HC_MELON],
             )
-            fig_dwk.update_layout(xaxis_tickformat="%b %d")
+            fig_dwk.update_layout(xaxis_type="category")
             st.plotly_chart(chart_base(fig_dwk), use_container_width=True)
 
         with db:
