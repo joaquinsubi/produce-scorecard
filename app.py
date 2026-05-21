@@ -829,80 +829,128 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_shorts, tab_trends, tab_ingredients, tab_cpm, tab_po, tab_table = st.tabs(
-    ["Shorts Log", "Waste Trends", "By Ingredient", "Cost Per Meal", "Purchase Orders", "Detail Table"]
+tab_shorts, tab_trends, tab_cpm, tab_po, tab_table = st.tabs(
+    ["Shorts Log", "Waste Trends", "Cost Per Meal", "Purchase Orders", "Detail Table"]
 )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — WASTE TRENDS
+# TAB 1 — WASTE TRENDS  (General + By Ingredient expanders)
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_trends:
-    fac_cost_tr = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
-    reason_df   = (
-        f.groupby("waste_reason")["waste_cost"]
-        .sum().reset_index()
-        .sort_values("waste_cost", ascending=False)
-    )
-    row1_h = max(380, len(fac_cost_tr) * 52)
 
-    c1, c2 = st.columns(2)
-
-    with c1:
-        fig_fac_tr = px.bar(
-            fac_cost_tr, y="facility", x="waste_cost",
-            orientation="h",
-            title="Total waste cost by facility",
-            labels={"facility": "", "waste_cost": "Waste Cost ($)"},
-            color="waste_cost",
-            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
-            text_auto="$.3s",
+    with st.expander("General", expanded=True):
+        fac_cost_tr = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
+        reason_df   = (
+            f.groupby("waste_reason")["waste_cost"]
+            .sum().reset_index()
+            .sort_values("waste_cost", ascending=False)
         )
-        fig_fac_tr.update_layout(
-            xaxis_tickprefix="$", xaxis_tickformat=",",
-            coloraxis_showscale=False,
-            height=row1_h,
-        )
-        st.plotly_chart(chart_base(fig_fac_tr), use_container_width=True)
+        row1_h = max(380, len(fac_cost_tr) * 52)
 
-    with c2:
-        fig2 = px.bar(
-            reason_df, x="waste_reason", y="waste_cost",
-            title="Waste cost by reason — negative bar indicates a correction",
-            labels={"waste_reason": "Reason", "waste_cost": "Waste Cost ($)"},
-            color="waste_reason",
+        c1, c2 = st.columns(2)
+
+        with c1:
+            fig_fac_tr = px.bar(
+                fac_cost_tr, y="facility", x="waste_cost",
+                orientation="h",
+                title="Total waste cost by facility",
+                labels={"facility": "", "waste_cost": "Waste Cost ($)"},
+                color="waste_cost",
+                color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+                text_auto="$.3s",
+            )
+            fig_fac_tr.update_layout(
+                xaxis_tickprefix="$", xaxis_tickformat=",",
+                coloraxis_showscale=False,
+                height=row1_h,
+            )
+            st.plotly_chart(chart_base(fig_fac_tr), use_container_width=True)
+
+        with c2:
+            fig2 = px.bar(
+                reason_df, x="waste_reason", y="waste_cost",
+                title="Waste cost by reason — negative bar indicates a correction",
+                labels={"waste_reason": "Reason", "waste_cost": "Waste Cost ($)"},
+                color="waste_reason",
+                color_discrete_sequence=HC_PALETTE,
+                text_auto="$.3s",
+            )
+            fig2.update_layout(
+                yaxis_tickprefix="$", yaxis_tickformat=",",
+                showlegend=False, xaxis_title=None,
+                height=row1_h,
+            )
+            st.plotly_chart(chart_base(fig2), use_container_width=True)
+
+        section_head("By facility", "Weekly waste cost by facility")
+        fac_wk_tr = fmt_weeks(f.groupby(["week", "facility"])["waste_cost"].sum().reset_index())
+        fig_fac_wk = px.bar(
+            fac_wk_tr, x="week", y="waste_cost", color="facility",
+            title="Weekly waste cost by facility",
+            labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "facility": "Facility"},
             color_discrete_sequence=HC_PALETTE,
+        )
+        fig_fac_wk.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", barmode="stack",
+                                  xaxis_type="category")
+        st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
+
+        section_head("Over time", "Weekly waste by reason")
+        wk_reason = fmt_weeks(f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index())
+        fig3 = px.area(
+            wk_reason, x="week", y="waste_cost", color="waste_reason",
+            title="Weekly waste cost — stacked by reason",
+            labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "waste_reason": "Reason"},
+            color_discrete_sequence=HC_PALETTE,
+        )
+        fig3.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", xaxis_type="category")
+        st.plotly_chart(chart_base(fig3), use_container_width=True)
+
+    with st.expander("By Ingredient", expanded=False):
+        top_n = st.slider("Show top N ingredients", 10, 50, 20, key="ing_slider")
+        ing = (
+            f.groupby("ingredient_name")["waste_cost"]
+            .sum().reset_index()
+            .sort_values("waste_cost", ascending=False)
+            .head(top_n)
+        )
+        fig_ing = px.bar(
+            ing, y="ingredient_name", x="waste_cost",
+            orientation="h",
+            title=f"Top {top_n} ingredients by waste cost",
+            labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
+            color="waste_cost",
+            color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
             text_auto="$.3s",
         )
-        fig2.update_layout(
-            yaxis_tickprefix="$", yaxis_tickformat=",",
-            showlegend=False, xaxis_title=None,
-            height=row1_h,
+        fig_ing.update_layout(
+            xaxis_tickprefix="$", xaxis_tickformat=",",
+            yaxis={"categoryorder": "total ascending"},
+            coloraxis_showscale=False,
+            height=max(400, top_n * 28),
         )
-        st.plotly_chart(chart_base(fig2), use_container_width=True)
+        st.plotly_chart(chart_base(fig_ing), use_container_width=True)
 
-    section_head("By facility", "Weekly waste cost by facility")
-    fac_wk_tr = fmt_weeks(f.groupby(["week", "facility"])["waste_cost"].sum().reset_index())
-    fig_fac_wk = px.bar(
-        fac_wk_tr, x="week", y="waste_cost", color="facility",
-        title="Weekly waste cost by facility",
-        labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "facility": "Facility"},
-        color_discrete_sequence=HC_PALETTE,
-    )
-    fig_fac_wk.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", barmode="stack",
-                              xaxis_type="category")
-    st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
-
-    section_head("Over time", "Weekly waste by reason")
-    wk_reason = fmt_weeks(f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index())
-    fig3 = px.area(
-        wk_reason, x="week", y="waste_cost", color="waste_reason",
-        title="Weekly waste cost — stacked by reason",
-        labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "waste_reason": "Reason"},
-        color_discrete_sequence=HC_PALETTE,
-    )
-    fig3.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", xaxis_type="category")
-    st.plotly_chart(chart_base(fig3), use_container_width=True)
+        section_head("Breakdown", "Ingredients by waste reason")
+        heat_df = (
+            f.groupby(["ingredient_name", "waste_reason"])["waste_cost"]
+            .sum().unstack(fill_value=0)
+        )
+        if not heat_df.empty:
+            heat_df = heat_df.loc[heat_df.sum(axis=1).nlargest(15).index]
+            fig_heat2 = px.imshow(
+                heat_df,
+                title="Top 15 ingredients by waste reason",
+                labels={"x": "Reason", "y": "Ingredient", "color": "Cost ($)"},
+                color_continuous_scale=[[0, "#FFFFFF"], [0.5, HC_LEMON], [1, HC_MELON]],
+                aspect="auto",
+                text_auto="$.0f",
+            )
+            fig_heat2.update_layout(
+                height=500,
+                coloraxis_colorbar=dict(tickprefix="$", tickformat=",.0f"),
+            )
+            st.plotly_chart(chart_base(fig_heat2), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1014,62 +1062,7 @@ with tab_cpm:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — BY FACILITY
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — BY INGREDIENT
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_ingredients:
-    top_n = st.slider("Show top N ingredients", 10, 50, 20)
-    ing = (
-        f.groupby("ingredient_name")["waste_cost"]
-        .sum().reset_index()
-        .sort_values("waste_cost", ascending=False)
-        .head(top_n)
-    )
-    fig_ing = px.bar(
-        ing, y="ingredient_name", x="waste_cost",
-        orientation="h",
-        title=f"Top {top_n} ingredients by waste cost",
-        labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
-        color="waste_cost",
-        color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
-        text_auto="$.3s",
-    )
-    fig_ing.update_layout(
-        xaxis_tickprefix="$", xaxis_tickformat=",",
-        yaxis={"categoryorder": "total ascending"},
-        coloraxis_showscale=False,
-        height=max(400, top_n * 28),
-    )
-    st.plotly_chart(chart_base(fig_ing), use_container_width=True)
-
-    section_head("Breakdown", "Ingredients by waste reason")
-    heat_df = (
-        f.groupby(["ingredient_name", "waste_reason"])["waste_cost"]
-        .sum().unstack(fill_value=0)
-    )
-    if not heat_df.empty:
-        heat_df = heat_df.loc[heat_df.sum(axis=1).nlargest(15).index]
-        fig_heat2 = px.imshow(
-            heat_df,
-            title="Top 15 ingredients by waste reason",
-            labels={"x": "Reason", "y": "Ingredient", "color": "Cost ($)"},
-            color_continuous_scale=[[0, "#FFFFFF"], [0.5, HC_LEMON], [1, HC_MELON]],
-            aspect="auto",
-            text_auto="$.0f",
-        )
-        fig_heat2.update_layout(
-            height=500,
-            coloraxis_colorbar=dict(tickprefix="$", tickformat=",.0f"),
-        )
-        st.plotly_chart(chart_base(fig_heat2), use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — PURCHASE ORDERS
+# TAB 3 — PURCHASE ORDERS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_po:
     po_df = build_po_analysis(f, rvw_df)
