@@ -1111,62 +1111,76 @@ with tab_trends:
                                   xaxis_type="category")
         st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
 
-        section_head("Over time", "Weekly waste by reason")
-        wk_reason = fmt_weeks(f.groupby(["week", "waste_reason"])["waste_cost"].sum().reset_index())
-        fig3 = px.area(
-            wk_reason, x="week", y="waste_cost", color="waste_reason",
-            title="Weekly waste cost — stacked by reason",
-            labels={"week": "Week of", "waste_cost": "Waste Cost ($)", "waste_reason": "Reason"},
-            color_discrete_sequence=HC_PALETTE,
-        )
-        fig3.update_layout(yaxis_tickprefix="$", yaxis_tickformat=",", xaxis_type="category")
-        st.plotly_chart(chart_base(fig3), use_container_width=True)
-
     with st.expander("By Ingredient", expanded=False):
         top_n = st.slider("Show top N ingredients", 10, 50, 20, key="ing_slider")
+
+        # Consistent site color map — shared by both charts so legends match
+        all_facs = sorted(f["facility"].dropna().unique())
+        fac_color_map = {fac: HC_PALETTE[i % len(HC_PALETTE)] for i, fac in enumerate(all_facs)}
+
         ing = (
             f.groupby("ingredient_name")["waste_cost"]
             .sum().reset_index()
             .sort_values("waste_cost", ascending=False)
             .head(top_n)
         )
+        ing_names = ing["ingredient_name"].tolist()
+        ing_order = ing.sort_values("waste_cost")["ingredient_name"].tolist()
+
+        # Chart 1: waste cost stacked by facility
+        ing_fac = (
+            f[f["ingredient_name"].isin(ing_names)]
+            .groupby(["ingredient_name", "facility"])["waste_cost"]
+            .sum().reset_index()
+        )
         fig_ing = px.bar(
-            ing, y="ingredient_name", x="waste_cost",
+            ing_fac,
+            y="ingredient_name", x="waste_cost",
+            color="facility",
             orientation="h",
             title=f"Top {top_n} ingredients by waste cost",
-            labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
-            color="waste_cost",
-            color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
-            text_auto="$.3s",
+            labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)", "facility": "Site"},
+            color_discrete_map=fac_color_map,
+            category_orders={"ingredient_name": ing_order},
         )
         fig_ing.update_layout(
             xaxis_tickprefix="$", xaxis_tickformat=",",
-            yaxis={"categoryorder": "total ascending"},
-            coloraxis_showscale=False,
+            barmode="stack",
             height=max(400, top_n * 28),
         )
         st.plotly_chart(chart_base(fig_ing), use_container_width=True)
 
-        section_head("Breakdown", "Ingredients by waste reason")
-        heat_df = (
-            f.groupby(["ingredient_name", "waste_reason"])["waste_cost"]
-            .sum().unstack(fill_value=0)
+        # Chart 2: estimated total spend on those ingredients, stacked by facility
+        # unit_cost = waste_cost / waste_qty; est_received_cost = unit_cost × received_qty
+        section_head("Breakdown", "Estimated total spend on those ingredients")
+        po_ing = build_po_analysis(f, rvw_df)
+        po_ing = po_ing[po_ing["ingredient_name"].isin(ing_names)].copy()
+        po_ing["unit_cost"] = po_ing["waste_cost"] / po_ing["waste_qty"].replace(0, np.nan)
+        po_ing["est_received_cost"] = (po_ing["unit_cost"] * po_ing["received_qty"]).clip(lower=0)
+
+        spend_fac = (
+            po_ing.groupby(["ingredient_name", "facility"])["est_received_cost"]
+            .sum().reset_index()
         )
-        if not heat_df.empty:
-            heat_df = heat_df.loc[heat_df.sum(axis=1).nlargest(15).index]
-            fig_heat2 = px.imshow(
-                heat_df,
-                title="Top 15 ingredients by waste reason",
-                labels={"x": "Reason", "y": "Ingredient", "color": "Cost ($)"},
-                color_continuous_scale=[[0, "#FFFFFF"], [0.5, HC_LEMON], [1, HC_MELON]],
-                aspect="auto",
-                text_auto="$.0f",
+        if not spend_fac.empty and spend_fac["est_received_cost"].sum() > 0:
+            fig_spend = px.bar(
+                spend_fac,
+                y="ingredient_name", x="est_received_cost",
+                color="facility",
+                orientation="h",
+                title=f"Estimated total spend — top {top_n} ingredients",
+                labels={"ingredient_name": "", "est_received_cost": "Est. Total Spend ($)", "facility": "Site"},
+                color_discrete_map=fac_color_map,
+                category_orders={"ingredient_name": ing_order},
             )
-            fig_heat2.update_layout(
-                height=500,
-                coloraxis_colorbar=dict(tickprefix="$", tickformat=",.0f"),
+            fig_spend.update_layout(
+                xaxis_tickprefix="$", xaxis_tickformat=",",
+                barmode="stack",
+                height=max(400, top_n * 28),
             )
-            st.plotly_chart(chart_base(fig_heat2), use_container_width=True)
+            st.plotly_chart(chart_base(fig_spend), use_container_width=True)
+        else:
+            st.info("PO cost data not available to estimate total spend.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1606,111 +1620,111 @@ with tab_shorts:
             st.plotly_chart(chart_base(fig_sheat), use_container_width=True)
 
         # ── Ingredient drill-down ─────────────────────────────────────────
-        section_head("Drill-down", "Ingredient deep dive")
+        with st.expander("Ingredient deep dive", expanded=False):
 
-        ing_options = (
-            shorts_f.groupby("shorted_ingredient")
-            .size().sort_values(ascending=False)
-            .index.tolist()
-        )
-        selected_ing = st.selectbox(
-            "Select an ingredient",
-            ing_options,
-            key="shorts_drilldown_ing",
-        )
-
-        drill = shorts_f[shorts_f["shorted_ingredient"] == selected_ing].copy()
-
-        # KPIs
-        d_total   = len(drill)
-        d_facs    = drill["facility"].nunique()
-        d_top_rsn = drill["short_reason"].mode()[0] if d_total else "—"
-        d_weeks   = drill["week"].nunique()
-
-        dk1, dk2, dk3, dk4 = st.columns(4)
-        with dk1:
-            st.markdown(kpi_card("Total Shorts", f"{d_total:,}"), unsafe_allow_html=True)
-        with dk2:
-            st.markdown(kpi_card("Facilities Affected", f"{d_facs}"), unsafe_allow_html=True)
-        with dk3:
-            st.markdown(kpi_card("Top Reason", d_top_rsn), unsafe_allow_html=True)
-        with dk4:
-            st.markdown(kpi_card("Weeks Affected", f"{d_weeks}"), unsafe_allow_html=True)
-
-        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
-
-        # Charts row
-        da, db = st.columns(2)
-
-        with da:
-            wk_drill = fmt_weeks(drill.groupby("week").size().reset_index(name="shorts"))
-            fig_dwk = px.bar(
-                wk_drill, x="week", y="shorts",
-                title=f"Weekly shorts — {selected_ing}",
-                labels={"week": "Menu ship week", "shorts": "Short count"},
-                color_discrete_sequence=[HC_MELON],
+            ing_options = (
+                shorts_f.groupby("shorted_ingredient")
+                .size().sort_values(ascending=False)
+                .index.tolist()
             )
-            fig_dwk.update_layout(xaxis_type="category")
-            st.plotly_chart(chart_base(fig_dwk), use_container_width=True)
+            selected_ing = st.selectbox(
+                "Select an ingredient",
+                ing_options,
+                key="shorts_drilldown_ing",
+            )
 
-        with db:
-            fac_drill = (
-                drill.groupby("facility").size()
+            drill = shorts_f[shorts_f["shorted_ingredient"] == selected_ing].copy()
+
+            # KPIs
+            d_total   = len(drill)
+            d_facs    = drill["facility"].nunique()
+            d_top_rsn = drill["short_reason"].mode()[0] if d_total else "—"
+            d_weeks   = drill["week"].nunique()
+
+            dk1, dk2, dk3, dk4 = st.columns(4)
+            with dk1:
+                st.markdown(kpi_card("Total Shorts", f"{d_total:,}"), unsafe_allow_html=True)
+            with dk2:
+                st.markdown(kpi_card("Facilities Affected", f"{d_facs}"), unsafe_allow_html=True)
+            with dk3:
+                st.markdown(kpi_card("Top Reason", d_top_rsn), unsafe_allow_html=True)
+            with dk4:
+                st.markdown(kpi_card("Weeks Affected", f"{d_weeks}"), unsafe_allow_html=True)
+
+            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+
+            # Charts row
+            da, db = st.columns(2)
+
+            with da:
+                wk_drill = fmt_weeks(drill.groupby("week").size().reset_index(name="shorts"))
+                fig_dwk = px.bar(
+                    wk_drill, x="week", y="shorts",
+                    title=f"Weekly shorts — {selected_ing}",
+                    labels={"week": "Menu ship week", "shorts": "Short count"},
+                    color_discrete_sequence=[HC_MELON],
+                )
+                fig_dwk.update_layout(xaxis_type="category")
+                st.plotly_chart(chart_base(fig_dwk), use_container_width=True)
+
+            with db:
+                fac_drill = (
+                    drill.groupby("facility").size()
+                    .reset_index(name="shorts")
+                    .sort_values("shorts", ascending=True)
+                )
+                fig_dfac = px.bar(
+                    fac_drill, y="facility", x="shorts",
+                    orientation="h",
+                    title="Shorts by facility",
+                    labels={"facility": "", "shorts": "Short count"},
+                    color="shorts",
+                    color_continuous_scale=[[0, HC_CREAM], [1, HC_BLUEBERRY]],
+                    text_auto=True,
+                )
+                fig_dfac.update_layout(coloraxis_showscale=False)
+                st.plotly_chart(chart_base(fig_dfac), use_container_width=True)
+
+            rsn_drill = (
+                drill.groupby("short_reason").size()
                 .reset_index(name="shorts")
-                .sort_values("shorts", ascending=True)
+                .sort_values("shorts", ascending=False)
             )
-            fig_dfac = px.bar(
-                fac_drill, y="facility", x="shorts",
-                orientation="h",
-                title="Shorts by facility",
-                labels={"facility": "", "shorts": "Short count"},
-                color="shorts",
-                color_continuous_scale=[[0, HC_CREAM], [1, HC_BLUEBERRY]],
+            fig_drsn = px.bar(
+                rsn_drill, x="short_reason", y="shorts",
+                title="Shorts by reason code",
+                labels={"short_reason": "", "shorts": "Short count"},
+                color="short_reason",
+                color_discrete_sequence=HC_PALETTE,
                 text_auto=True,
             )
-            fig_dfac.update_layout(coloraxis_showscale=False)
-            st.plotly_chart(chart_base(fig_dfac), use_container_width=True)
+            fig_drsn.update_layout(showlegend=False, xaxis_title=None)
+            st.plotly_chart(chart_base(fig_drsn), use_container_width=True)
 
-        rsn_drill = (
-            drill.groupby("short_reason").size()
-            .reset_index(name="shorts")
-            .sort_values("shorts", ascending=False)
-        )
-        fig_drsn = px.bar(
-            rsn_drill, x="short_reason", y="shorts",
-            title="Shorts by reason code",
-            labels={"short_reason": "", "shorts": "Short count"},
-            color="short_reason",
-            color_discrete_sequence=HC_PALETTE,
-            text_auto=True,
-        )
-        fig_drsn.update_layout(showlegend=False, xaxis_title=None)
-        st.plotly_chart(chart_base(fig_drsn), use_container_width=True)
-
-        # Detail table — grouped so identical week/facility/reason/vendor rows are collapsed
-        section_head("Records", f"All short records — {selected_ing}")
-        drill_display = (
-            drill.groupby(["menu_ship_week", "facility", "short_reason", "brand"], dropna=False)
-            .size()
-            .reset_index(name="count")
-            .sort_values(["menu_ship_week", "count"], ascending=[False, False])
-        )
-        drill_display["menu_ship_week"] = drill_display["menu_ship_week"].dt.date
-        max_count = int(drill_display["count"].max()) if len(drill_display) else 1
-        st.dataframe(
-            drill_display,
-            use_container_width=True,
-            hide_index=True,
-            height=min(480, 40 + len(drill_display) * 35),
-            column_config={
-                "menu_ship_week": st.column_config.DateColumn("Menu Ship Week", format="MMM D, YYYY"),
-                "facility":       st.column_config.TextColumn("Facility"),
-                "short_reason":   st.column_config.TextColumn("Reason Code"),
-                "brand":          st.column_config.TextColumn("Vendor / Brand"),
-                "count":          st.column_config.ProgressColumn(
-                                      "# Records", min_value=0, max_value=max_count, format="%d"),
-            },
-        )
+            # Detail table — grouped so identical week/facility/reason/vendor rows are collapsed
+            section_head("Records", f"All short records — {selected_ing}")
+            drill_display = (
+                drill.groupby(["menu_ship_week", "facility", "short_reason", "brand"], dropna=False)
+                .size()
+                .reset_index(name="count")
+                .sort_values(["menu_ship_week", "count"], ascending=[False, False])
+            )
+            drill_display["menu_ship_week"] = drill_display["menu_ship_week"].dt.date
+            max_count = int(drill_display["count"].max()) if len(drill_display) else 1
+            st.dataframe(
+                drill_display,
+                use_container_width=True,
+                hide_index=True,
+                height=min(480, 40 + len(drill_display) * 35),
+                column_config={
+                    "menu_ship_week": st.column_config.DateColumn("Menu Ship Week", format="MMM D, YYYY"),
+                    "facility":       st.column_config.TextColumn("Facility"),
+                    "short_reason":   st.column_config.TextColumn("Reason Code"),
+                    "brand":          st.column_config.TextColumn("Vendor / Brand"),
+                    "count":          st.column_config.ProgressColumn(
+                                          "# Records", min_value=0, max_value=max_count, format="%d"),
+                },
+            )
 
 
 
