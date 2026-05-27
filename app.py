@@ -917,7 +917,7 @@ with tab_summary:
     st.divider()
 
     # ── Row 1: Shorts ───────────────────────────────────────────────────────────
-    section_head("Shorts", "Ingredient availability")
+    section_head("Shorts", "Shorts by ingredient & site")
     sc1, sc2 = st.columns(2)
 
     with sc1:
