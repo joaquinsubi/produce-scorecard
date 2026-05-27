@@ -858,60 +858,196 @@ st.markdown(
 st.divider()
 
 
-# ── KPI CARDS ─────────────────────────────────────────────────────────────────
-# Custom HTML cards — st.metric() resists CSS overrides, so we render our own.
-
-k1, k2, k3, k4 = st.columns(4)
-
-with k1:
-    st.markdown(kpi_card(
-        "Total Waste Cost",
-        f"${total_cost:,.0f}",
-        delta=cost_delta_str,
-        delta_positive=cost_delta_good,
-    ), unsafe_allow_html=True)
-
-with k2:
-    cpm_val    = f"${overall_cpm:.4f}" if not np.isnan(overall_cpm) else "—"
-    meals_note = (f"{total_meals_matched/1e6:.1f}M meals matched"
-                  if total_meals_matched > 0 else None)
-    st.markdown(kpi_card(
-        "Overall CPM",
-        cpm_val,
-        delta=meals_note,
-        delta_positive=None,
-        help_text=f"Total waste ${total_cost:,.0f} / {total_meals_matched:,.0f} matched meals",
-    ), unsafe_allow_html=True)
-
-with k3:
-    st.markdown(kpi_card(
-        "Top Waste Reason",
-        top_reason,
-        delta=f"{top_reason_pct:.1f}% of cost",
-        delta_positive=None,
-    ), unsafe_allow_html=True)
-
-with k4:
-    if total_case_cost > 0:
-        pct_cost_wasted = total_cost / total_case_cost * 100
-        st.markdown(kpi_card(
-            "% of Cost Wasted",
-            f"{pct_cost_wasted:.1f}%",
-            delta=f"${total_cost:,.0f} waste / ${total_case_cost:,.0f} purchased",
-            delta_positive=None,
-            help_text="Total waste cost ÷ total case cost from Purchase Orders",
-        ), unsafe_allow_html=True)
-    else:
-        st.markdown(kpi_card("% of Cost Wasted", "—"), unsafe_allow_html=True)
-
-st.divider()
-
-
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_shorts, tab_trends, tab_cpm, tab_po, tab_table = st.tabs(
-    ["Shorts Log", "Waste Trends", "Cost Per Meal", "Purchase Orders", "Detail Table"]
+tab_summary, tab_shorts, tab_trends, tab_cpm, tab_po, tab_table = st.tabs(
+    ["Summary", "Shorts Log", "Waste Trends", "Cost Per Meal", "Purchase Orders", "Detail Table"]
 )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 0 — SUMMARY
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_summary:
+
+    # ── KPI cards ──────────────────────────────────────────────────────────────
+    k1, k2, k3, k4 = st.columns(4)
+
+    with k1:
+        st.markdown(kpi_card(
+            "Total Waste Cost",
+            f"${total_cost:,.0f}",
+            delta=cost_delta_str,
+            delta_positive=cost_delta_good,
+        ), unsafe_allow_html=True)
+
+    with k2:
+        cpm_val    = f"${overall_cpm:.4f}" if not np.isnan(overall_cpm) else "—"
+        meals_note = (f"{total_meals_matched/1e6:.1f}M meals matched"
+                      if total_meals_matched > 0 else None)
+        st.markdown(kpi_card(
+            "Overall CPM",
+            cpm_val,
+            delta=meals_note,
+            delta_positive=None,
+            help_text=f"Total waste ${total_cost:,.0f} / {total_meals_matched:,.0f} matched meals",
+        ), unsafe_allow_html=True)
+
+    with k3:
+        st.markdown(kpi_card(
+            "Top Waste Reason",
+            top_reason,
+            delta=f"{top_reason_pct:.1f}% of cost",
+            delta_positive=None,
+        ), unsafe_allow_html=True)
+
+    with k4:
+        if total_case_cost > 0:
+            pct_cost_wasted = total_cost / total_case_cost * 100
+            st.markdown(kpi_card(
+                "% of Cost Wasted",
+                f"{pct_cost_wasted:.1f}%",
+                delta=f"${total_cost:,.0f} waste / ${total_case_cost:,.0f} purchased",
+                delta_positive=None,
+                help_text="Total waste cost ÷ total case cost from Purchase Orders",
+            ), unsafe_allow_html=True)
+        else:
+            st.markdown(kpi_card("% of Cost Wasted", "—"), unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Row 1: Shorts ───────────────────────────────────────────────────────────
+    section_head("Shorts", "Ingredient availability")
+    sc1, sc2 = st.columns(2)
+
+    with sc1:
+        if not shorts_f.empty:
+            top_shorted = (
+                shorts_f.groupby("shorted_ingredient")
+                .size().reset_index(name="shorts")
+                .sort_values("shorts", ascending=False)
+                .head(10)
+            )
+            fig_sum_sing = px.bar(
+                top_shorted.sort_values("shorts"),
+                y="shorted_ingredient", x="shorts",
+                orientation="h",
+                title="Top 10 most shorted ingredients",
+                labels={"shorted_ingredient": "", "shorts": "Short count"},
+                color="shorts",
+                color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
+                text_auto=True,
+            )
+            fig_sum_sing.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                coloraxis_showscale=False,
+                height=360,
+            )
+            st.plotly_chart(chart_base(fig_sum_sing), use_container_width=True)
+        else:
+            st.info("No produce shorts in the selected period.")
+
+    with sc2:
+        if not shorts_f.empty:
+            fac_shorts_sum = (
+                shorts_f.groupby("facility")
+                .size().reset_index(name="shorts")
+                .sort_values("shorts", ascending=True)
+            )
+            fig_sum_sfac = px.bar(
+                fac_shorts_sum,
+                y="facility", x="shorts",
+                orientation="h",
+                title="Shorts by site",
+                labels={"facility": "", "shorts": "Short count"},
+                color="shorts",
+                color_continuous_scale=[[0, HC_CREAM], [1, HC_BLUEBERRY]],
+                text_auto=True,
+            )
+            fig_sum_sfac.update_layout(
+                coloraxis_showscale=False,
+                height=360,
+            )
+            st.plotly_chart(chart_base(fig_sum_sfac), use_container_width=True)
+        else:
+            st.info("No produce shorts in the selected period.")
+
+    # ── Row 2: Waste cost & CPM ─────────────────────────────────────────────────
+    section_head("Waste", "Cost by facility")
+    wc1, wc2 = st.columns(2)
+
+    with wc1:
+        fac_cost_sum = (
+            f.groupby("facility")["waste_cost"]
+            .sum().reset_index()
+            .sort_values("waste_cost")
+        )
+        fig_sum_fac = px.bar(
+            fac_cost_sum, y="facility", x="waste_cost",
+            orientation="h",
+            title="Total waste cost by facility",
+            labels={"facility": "", "waste_cost": "Waste Cost ($)"},
+            color="waste_cost",
+            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+            text_auto="$.3s",
+        )
+        fig_sum_fac.update_layout(
+            xaxis_tickprefix="$", xaxis_tickformat=",",
+            coloraxis_showscale=False,
+            height=360,
+        )
+        st.plotly_chart(chart_base(fig_sum_fac), use_container_width=True)
+
+    with wc2:
+        fac_cpm_sum = (
+            cpm_detail.groupby("facility")
+            .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
+                   if g["total_meals"].sum() > 0 else np.nan)
+            .reset_index(name="cpm")
+            .dropna()
+            .sort_values("cpm")
+        )
+        fig_sum_cpm = px.bar(
+            fac_cpm_sum, y="facility", x="cpm",
+            orientation="h",
+            title="CPM by facility",
+            labels={"facility": "", "cpm": "CPM ($)"},
+            color="cpm",
+            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+            text_auto="$.4f",
+        )
+        fig_sum_cpm.update_layout(
+            xaxis_tickprefix="$", xaxis_tickformat=".4f",
+            coloraxis_showscale=False,
+            height=360,
+        )
+        st.plotly_chart(chart_base(fig_sum_cpm), use_container_width=True)
+
+    # ── Row 3: Top ingredients by waste cost ────────────────────────────────────
+    section_head("Ingredients", "Top produce by waste cost")
+    top_ing_sum = (
+        f.groupby("ingredient_name")["waste_cost"]
+        .sum().reset_index()
+        .sort_values("waste_cost", ascending=False)
+        .head(10)
+    )
+    fig_sum_ing = px.bar(
+        top_ing_sum.sort_values("waste_cost"),
+        y="ingredient_name", x="waste_cost",
+        orientation="h",
+        title="Top 10 ingredients by waste cost",
+        labels={"ingredient_name": "", "waste_cost": "Waste Cost ($)"},
+        color="waste_cost",
+        color_continuous_scale=[[0, HC_CREAM], [1, HC_MELON]],
+        text_auto="$.3s",
+    )
+    fig_sum_ing.update_layout(
+        xaxis_tickprefix="$", xaxis_tickformat=",",
+        yaxis={"categoryorder": "total ascending"},
+        coloraxis_showscale=False,
+        height=360,
+    )
+    st.plotly_chart(chart_base(fig_sum_ing), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
