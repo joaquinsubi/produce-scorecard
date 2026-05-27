@@ -268,6 +268,48 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 [data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div[data-testid="stMarkdownContainer"] > div {
     height: 100% !important;
 }
+
+/* ── dark-mode compat: portal-rendered dropdowns escape the theme vars ── */
+[data-baseweb="popover"],
+[data-baseweb="tooltip"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E6E0D8 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 16px rgba(11,53,90,0.12) !important;
+}
+[data-baseweb="menu"] [role="option"] {
+    background-color: #FFFFFF !important;
+    color: #1A1A1A !important;
+}
+[data-baseweb="menu"] [role="option"]:hover,
+[data-baseweb="menu"] [role="option"][aria-selected="true"] {
+    background-color: #F5F0EB !important;
+    color: #1A1A1A !important;
+}
+
+/* multiselect tags */
+[data-baseweb="tag"] {
+    background-color: rgba(0,134,0,0.10) !important;
+    color: #008600 !important;
+    border-color: rgba(0,134,0,0.25) !important;
+}
+[data-baseweb="tag"] span { color: #008600 !important; }
+
+/* text input in detail table search bar */
+.stTextInput input {
+    background-color: #FFFFFF !important;
+    color: #1A1A1A !important;
+    border: 1px solid #E6E0D8 !important;
+    border-radius: 8px !important;
+}
+.stTextInput input::placeholder { color: #7A7A7A !important; }
+
+/* selectbox control in main content */
+.main .stSelectbox [data-baseweb="select"] > div {
+    background-color: #FFFFFF !important;
+    color: #1A1A1A !important;
+    border-color: #E6E0D8 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
