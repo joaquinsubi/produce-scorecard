@@ -647,9 +647,17 @@ try:
                 continue
             _date = pd.to_datetime(_row[10], errors="coerce") if len(_row) > 10 else pd.NaT
             _fac  = str(_row[1]).strip() if len(_row) > 1 else ""
-            _po_rows.append({"menu_ship_week": _date, "facility": _fac, "case_cost": _cost})
+            _po   = str(_row[0]).strip() if len(_row) > 0 else ""
+            _iid  = str(_row[2]).strip() if len(_row) > 2 else ""
+            _po_rows.append({
+                "po_number":      _po,
+                "ingredient_id":  _iid,
+                "menu_ship_week": _date,
+                "facility":       _fac,
+                "case_cost":      _cost,
+            })
     po_costs_df = pd.DataFrame(_po_rows) if _po_rows else pd.DataFrame(
-        columns=["menu_ship_week", "facility", "case_cost"]
+        columns=["po_number", "ingredient_id", "menu_ship_week", "facility", "case_cost"]
     )
     menu_weeks = sorted(set(
         pd.to_datetime(row[1], errors="coerce")
@@ -1125,9 +1133,10 @@ with tab_trends:
             .head(top_n)
         )
         ing_names = ing["ingredient_name"].tolist()
-        ing_order = ing.sort_values("waste_cost")["ingredient_name"].tolist()
+        # Ascending list → first item = BOTTOM of chart, last = TOP → highest on top
+        ing_order = ing.sort_values("waste_cost", ascending=True)["ingredient_name"].tolist()
 
-        # Chart 1: waste cost stacked by facility
+        # Chart 1: waste cost stacked by facility, highest waste cost on top
         ing_fac = (
             f[f["ingredient_name"].isin(ing_names)]
             .groupby(["ingredient_name", "facility"])["waste_cost"]
@@ -1146,41 +1155,63 @@ with tab_trends:
         fig_ing.update_layout(
             xaxis_tickprefix="$", xaxis_tickformat=",",
             barmode="stack",
+            yaxis={"categoryorder": "array", "categoryarray": ing_order},
             height=max(400, top_n * 28),
         )
         st.plotly_chart(chart_base(fig_ing), use_container_width=True)
 
-        # Chart 2: estimated total spend on those ingredients, stacked by facility
-        # unit_cost = waste_cost / waste_qty; est_received_cost = unit_cost × received_qty
-        section_head("Breakdown", "Estimated total spend on those ingredients")
-        po_ing = build_po_analysis(f, rvw_df)
-        po_ing = po_ing[po_ing["ingredient_name"].isin(ing_names)].copy()
-        po_ing["unit_cost"] = po_ing["waste_cost"] / po_ing["waste_qty"].replace(0, np.nan)
-        po_ing["est_received_cost"] = (po_ing["unit_cost"] * po_ing["received_qty"]).clip(lower=0)
+        # Chart 2: exact total spend from PO sheet col N (case_cost), same ingredient order
+        # Join: po_costs_df (po_number + ingredient_id → case_cost) × WMS (ingredient_id → name)
+        section_head("Breakdown", "Total spend on those ingredients")
+
+        # Filter PO cost rows to the same date range + facility as the main filters
+        pc = po_costs_df.copy()
+        if not pc.empty:
+            if selected_weeks is not None:
+                pc = pc[pc["menu_ship_week"].dt.date.isin(selected_weeks)]
+            else:
+                pc = pc[
+                    (pc["menu_ship_week"].dt.date >= date_range[0]) &
+                    (pc["menu_ship_week"].dt.date <= date_range[1])
+                ]
+            if sel_facility != "All":
+                pc = pc[pc["facility"].str.lower() == sel_facility.lower()]
+
+        # Map ingredient_id → ingredient_name via filtered WMS
+        ing_id_map = (
+            f[["ingredient_id", "ingredient_name"]]
+            .assign(ingredient_id=lambda d: d["ingredient_id"].astype(str).str.strip())
+            .drop_duplicates("ingredient_id")
+        )
+        pc = pc.assign(ingredient_id=pc["ingredient_id"].astype(str).str.strip())
+        pc_named = pc.merge(ing_id_map, on="ingredient_id", how="inner")
 
         spend_fac = (
-            po_ing.groupby(["ingredient_name", "facility"])["est_received_cost"]
+            pc_named[pc_named["ingredient_name"].isin(ing_names)]
+            .groupby(["ingredient_name", "facility"])["case_cost"]
             .sum().reset_index()
         )
-        if not spend_fac.empty and spend_fac["est_received_cost"].sum() > 0:
+
+        if not spend_fac.empty and spend_fac["case_cost"].sum() > 0:
             fig_spend = px.bar(
                 spend_fac,
-                y="ingredient_name", x="est_received_cost",
+                y="ingredient_name", x="case_cost",
                 color="facility",
                 orientation="h",
-                title=f"Estimated total spend — top {top_n} ingredients",
-                labels={"ingredient_name": "", "est_received_cost": "Est. Total Spend ($)", "facility": "Site"},
+                title=f"Total spend — top {top_n} ingredients",
+                labels={"ingredient_name": "", "case_cost": "Total Spend ($)", "facility": "Site"},
                 color_discrete_map=fac_color_map,
                 category_orders={"ingredient_name": ing_order},
             )
             fig_spend.update_layout(
                 xaxis_tickprefix="$", xaxis_tickformat=",",
                 barmode="stack",
+                yaxis={"categoryorder": "array", "categoryarray": ing_order},
                 height=max(400, top_n * 28),
             )
             st.plotly_chart(chart_base(fig_spend), use_container_width=True)
         else:
-            st.info("PO cost data not available to estimate total spend.")
+            st.info("PO cost data not available for the selected period.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
