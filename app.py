@@ -868,8 +868,8 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_summary, tab_shorts, tab_trends, tab_cpm, tab_po, tab_table = st.tabs(
-    ["Summary", "Shorts Log", "Waste Trends", "Cost Per Meal", "Purchase Orders", "Detail Table"]
+tab_summary, tab_shorts, tab_trends, tab_po, tab_table = st.tabs(
+    ["Summary", "Shorts Log", "Waste Trends", "Purchase Orders", "Detail Table"]
 )
 
 
@@ -1119,6 +1119,107 @@ with tab_trends:
                                   xaxis_type="category")
         st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
 
+        section_head("Cost Per Meal", "Weekly CPM — all facilities")
+        wk_cpm = fmt_weeks(
+            cpm_detail.groupby("week")
+            .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
+                   if g["total_meals"].sum() > 0 else np.nan)
+            .reset_index(name="cpm")
+        )
+        fig_cpm1 = px.line(
+            wk_cpm, x="week", y="cpm",
+            title="Weekly cost per meal — all facilities combined",
+            labels={"week": "Week of", "cpm": "CPM ($)"},
+            markers=True, color_discrete_sequence=[HC_MELON],
+        )
+        fig_cpm1.update_traces(
+            line_width=2,
+            marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
+        )
+        fig_cpm1.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f", xaxis_type="category")
+        st.plotly_chart(chart_base(fig_cpm1), use_container_width=True)
+
+        section_head("Cost Per Meal", "CPM by facility")
+        c_cpm_left, c_cpm_right = st.columns(2)
+
+        with c_cpm_left:
+            fac_cpm_bar = (
+                cpm_detail.groupby("facility")
+                .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
+                       if g["total_meals"].sum() > 0 else np.nan)
+                .reset_index(name="cpm")
+                .dropna()
+                .sort_values("cpm")
+            )
+            fig_fac_cpm = px.bar(
+                fac_cpm_bar, y="facility", x="cpm",
+                orientation="h",
+                title="CPM by facility",
+                labels={"facility": "", "cpm": "CPM ($)"},
+                color="cpm",
+                color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+                text_auto="$.4f",
+            )
+            fig_fac_cpm.update_layout(
+                xaxis_tickprefix="$", xaxis_tickformat=".4f",
+                coloraxis_showscale=False,
+                height=max(320, len(fac_cpm_bar) * 44),
+            )
+            st.plotly_chart(chart_base(fig_fac_cpm), use_container_width=True)
+
+        with c_cpm_right:
+            fac_cpm_tbl = (
+                cpm_detail.groupby("facility")
+                .agg(waste_cost=("waste_cost", "sum"), total_meals=("total_meals", "sum"))
+                .reset_index()
+            )
+            fac_cpm_tbl["cpm"] = fac_cpm_tbl["waste_cost"] / fac_cpm_tbl["total_meals"].replace(0, np.nan)
+            fac_cpm_tbl = fac_cpm_tbl.sort_values("cpm", ascending=False)
+            st.markdown(
+                '<p class="hc-eyebrow" style="color:#008600;margin-bottom:6px">Summary</p>'
+                '<h3 style="font-family:\'Bree Serif\',Georgia,serif;font-size:20px;'
+                'color:#1A1A1A;margin:0 0 12px">CPM by facility</h3>',
+                unsafe_allow_html=True,
+            )
+            st.dataframe(
+                fac_cpm_tbl,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "facility":    st.column_config.TextColumn("Facility"),
+                    "waste_cost":  st.column_config.NumberColumn("Waste cost",  format="$%,.0f"),
+                    "total_meals": st.column_config.NumberColumn("Total meals", format="%,.0f"),
+                    "cpm":         st.column_config.NumberColumn("CPM",         format="$%.4f"),
+                },
+            )
+
+        heat_cpm = (
+            cpm_detail[cpm_detail["total_meals"] > 0]
+            .assign(cpm=lambda d: d["waste_cost"] / d["total_meals"])
+            .pivot_table(index="facility", columns="week", values="cpm", aggfunc="mean")
+        )
+        if not heat_cpm.empty:
+            section_head("Cost Per Meal", "CPM heatmap — facility × week")
+            heat_cpm.columns = [
+                pd.Timestamp(c).strftime("%b %d").replace(" 0", "  ").strip() if isinstance(c, str) and c
+                else (c.strftime("%b %d").replace(" 0", "  ").strip() if hasattr(c, "strftime") else str(c))
+                for c in heat_cpm.columns
+            ]
+            fig_cpm_heat = px.imshow(
+                heat_cpm,
+                title="CPM heatmap — facility by week",
+                labels={"x": "Week of", "y": "Facility", "color": "CPM ($)"},
+                color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+                aspect="auto",
+                text_auto="$.3f",
+            )
+            fig_cpm_heat.update_layout(
+                coloraxis_colorbar=dict(tickprefix="$", tickformat=".3f", title="CPM"),
+                height=max(320, len(heat_cpm) * 44 + 80),
+                xaxis_tickangle=-45,
+            )
+            st.plotly_chart(chart_base(fig_cpm_heat), use_container_width=True)
+
     with st.expander("By Ingredient", expanded=False):
         top_n = st.slider("Show top N ingredients", 10, 50, 20, key="ing_slider")
 
@@ -1212,114 +1313,6 @@ with tab_trends:
             st.plotly_chart(chart_base(fig_spend), use_container_width=True)
         else:
             st.info("PO cost data not available for the selected period.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — CPM
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_cpm:
-
-    wk_cpm = fmt_weeks(
-        cpm_detail.groupby("week")
-        .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
-               if g["total_meals"].sum() > 0 else np.nan)
-        .reset_index(name="cpm")
-    )
-    fig_cpm1 = px.line(
-        wk_cpm, x="week", y="cpm",
-        title="Weekly cost per meal — all facilities combined",
-        labels={"week": "Week of", "cpm": "CPM ($)"},
-        markers=True, color_discrete_sequence=[HC_MELON],
-    )
-    fig_cpm1.update_traces(
-        line_width=2,
-        marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
-    )
-    fig_cpm1.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f", xaxis_type="category")
-    st.plotly_chart(chart_base(fig_cpm1), use_container_width=True)
-
-    section_head("By facility", "CPM breakdown")
-
-    c_left, c_right = st.columns(2)
-
-    with c_left:
-        fac_cpm_bar = (
-            cpm_detail.groupby("facility")
-            .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
-                   if g["total_meals"].sum() > 0 else np.nan)
-            .reset_index(name="cpm")
-            .dropna()
-            .sort_values("cpm")
-        )
-        fig_fac_bar = px.bar(
-            fac_cpm_bar, y="facility", x="cpm",
-            orientation="h",
-            title="CPM by facility",
-            labels={"facility": "", "cpm": "CPM ($)"},
-            color="cpm",
-            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
-            text_auto="$.4f",
-        )
-        fig_fac_bar.update_layout(
-            xaxis_tickprefix="$", xaxis_tickformat=".4f",
-            coloraxis_showscale=False,
-            height=max(320, len(fac_cpm_bar) * 44),
-        )
-        st.plotly_chart(chart_base(fig_fac_bar), use_container_width=True)
-
-    with c_right:
-        fac_cpm_tbl = (
-            cpm_detail.groupby("facility")
-            .agg(waste_cost=("waste_cost", "sum"), total_meals=("total_meals", "sum"))
-            .reset_index()
-        )
-        fac_cpm_tbl["cpm"] = fac_cpm_tbl["waste_cost"] / fac_cpm_tbl["total_meals"].replace(0, np.nan)
-        fac_cpm_tbl = fac_cpm_tbl.sort_values("cpm", ascending=False)
-
-        st.markdown(
-            '<p class="hc-eyebrow" style="color:#008600;margin-bottom:6px">Summary</p>'
-            '<h3 style="font-family:\'Bree Serif\',Georgia,serif;font-size:20px;'
-            'color:#1A1A1A;margin:0 0 12px">CPM by facility</h3>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(
-            fac_cpm_tbl,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "facility":    st.column_config.TextColumn("Facility"),
-                "waste_cost":  st.column_config.NumberColumn("Waste cost",  format="$%,.0f"),
-                "total_meals": st.column_config.NumberColumn("Total meals", format="%,.0f"),
-                "cpm":         st.column_config.NumberColumn("CPM",         format="$%.4f"),
-            },
-        )
-
-    heat_cpm = (
-        cpm_detail[cpm_detail["total_meals"] > 0]
-        .assign(cpm=lambda d: d["waste_cost"] / d["total_meals"])
-        .pivot_table(index="facility", columns="week", values="cpm", aggfunc="mean")
-    )
-    if not heat_cpm.empty:
-        section_head("Heatmap", "CPM by facility x week")
-        heat_cpm.columns = [
-            pd.Timestamp(c).strftime("%b %d").replace(" 0", "  ").strip() if isinstance(c, str) and c
-            else (c.strftime("%b %d").replace(" 0", "  ").strip() if hasattr(c, "strftime") else str(c))
-            for c in heat_cpm.columns
-        ]
-        fig_heat = px.imshow(
-            heat_cpm,
-            title="CPM heatmap — facility by week",
-            labels={"x": "Week of", "y": "Facility", "color": "CPM ($)"},
-            color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
-            aspect="auto",
-            text_auto="$.3f",
-        )
-        fig_heat.update_layout(
-            coloraxis_colorbar=dict(tickprefix="$", tickformat=".3f", title="CPM"),
-            height=max(320, len(heat_cpm) * 44 + 80),
-            xaxis_tickangle=-45,
-        )
-        st.plotly_chart(chart_base(fig_heat), use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1510,7 +1503,9 @@ with tab_po:
             .sum()
             .unstack(fill_value=0)
         )
-        pivot = pivot.loc[pivot.sum(axis=1).sort_values(ascending=True).index]
+        # Match the bar chart order: ascending avg_pct_wasted = bottom → top
+        pct_order = top_ing.sort_values("avg_pct_wasted")["ingredient_name"].tolist()
+        pivot = pivot.loc[[name for name in pct_order if name in pivot.index]]
         # Convert YYYY-MM-DD column headers to "Mmm D" strings so Plotly
         # treats them as categories rather than UTC timestamps.
         pivot.columns = [
