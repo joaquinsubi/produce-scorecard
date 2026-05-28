@@ -1064,6 +1064,13 @@ with tab_summary:
 with tab_trends:
 
     with st.expander("General", expanded=True):
+        st.markdown(
+            '<div style="margin-bottom:20px">'
+            '<p class="hc-section-head__eyebrow">Overview</p>'
+            '<h2 class="hc-section-head__title">Overall Waste</h2>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         fac_cost_tr = f.groupby("facility")["waste_cost"].sum().reset_index().sort_values("waste_cost")
         reason_df   = (
             f.groupby("waste_reason")["waste_cost"]
@@ -1119,7 +1126,13 @@ with tab_trends:
                                   xaxis_type="category")
         st.plotly_chart(chart_base(fig_fac_wk), use_container_width=True)
 
-        section_head("Cost Per Meal", "Weekly CPM — all facilities")
+        st.markdown(
+            '<div style="border-top:2px solid #008600;padding-top:28px;margin-top:44px;margin-bottom:16px">'
+            '<p class="hc-section-head__eyebrow">Cost Per Meal</p>'
+            '<h2 class="hc-section-head__title" style="font-size:26px">Cost Per Meal</h2>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         wk_cpm = fmt_weeks(
             cpm_detail.groupby("week")
             .apply(lambda g: g["waste_cost"].sum() / g["total_meals"].sum()
@@ -1139,7 +1152,7 @@ with tab_trends:
         fig_cpm1.update_layout(yaxis_tickprefix="$", yaxis_tickformat=".4f", xaxis_type="category")
         st.plotly_chart(chart_base(fig_cpm1), use_container_width=True)
 
-        section_head("Cost Per Meal", "CPM by facility")
+        section_head("By facility", "CPM breakdown")
         c_cpm_left, c_cpm_right = st.columns(2)
 
         with c_cpm_left:
@@ -1199,7 +1212,7 @@ with tab_trends:
             .pivot_table(index="facility", columns="week", values="cpm", aggfunc="mean")
         )
         if not heat_cpm.empty:
-            section_head("Cost Per Meal", "CPM heatmap — facility × week")
+            section_head("Heatmap", "CPM heatmap — facility × week")
             heat_cpm.columns = [
                 pd.Timestamp(c).strftime("%b %d").replace(" 0", "  ").strip() if isinstance(c, str) and c
                 else (c.strftime("%b %d").replace(" 0", "  ").strip() if hasattr(c, "strftime") else str(c))
