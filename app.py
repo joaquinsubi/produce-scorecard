@@ -377,10 +377,9 @@ def chart_base(fig, height=None):
 
 
 def section_head(eyebrow: str, title: str):
-    """Renders a ruled section header with HC eyebrow + Bree Serif title."""
+    """Renders a ruled section header with a Bree Serif title."""
     st.markdown(
         f'<div class="hc-section-head">'
-        f'<p class="hc-section-head__eyebrow">{eyebrow}</p>'
         f'<h2 class="hc-section-head__title">{title}</h2>'
         f'</div>',
         unsafe_allow_html=True,
@@ -858,7 +857,6 @@ range_str = (
 fac_str = sel_facility if sel_facility != "All" else f"{f['facility'].nunique()} facilities"
 
 st.markdown(
-    f'<div class="hc-eyebrow-green">Internal &nbsp;·&nbsp; Operations</div>'
     f'<p class="hc-title">Produce Scorecard</p>'
     f'<p class="hc-eyebrow">{range_str} &nbsp;·&nbsp; {fac_str} &nbsp;·&nbsp; {len(f):,} records</p>',
     unsafe_allow_html=True,
@@ -1066,7 +1064,6 @@ with tab_trends:
     with st.expander("General", expanded=True):
         st.markdown(
             '<div style="margin-bottom:20px">'
-            '<p class="hc-section-head__eyebrow">Overview</p>'
             '<h2 class="hc-section-head__title">Overall Waste</h2>'
             '</div>',
             unsafe_allow_html=True,
@@ -1128,7 +1125,6 @@ with tab_trends:
 
         st.markdown(
             '<div style="border-top:2px solid #008600;padding-top:28px;margin-top:44px;margin-bottom:16px">'
-            '<p class="hc-section-head__eyebrow">Cost Per Meal</p>'
             '<h2 class="hc-section-head__title" style="font-size:26px">Cost Per Meal</h2>'
             '</div>',
             unsafe_allow_html=True,
@@ -1189,7 +1185,6 @@ with tab_trends:
             fac_cpm_tbl["cpm"] = fac_cpm_tbl["waste_cost"] / fac_cpm_tbl["total_meals"].replace(0, np.nan)
             fac_cpm_tbl = fac_cpm_tbl.sort_values("cpm", ascending=False)
             st.markdown(
-                '<p class="hc-eyebrow" style="color:#008600;margin-bottom:6px">Summary</p>'
                 '<h3 style="font-family:\'Bree Serif\',Georgia,serif;font-size:20px;'
                 'color:#1A1A1A;margin:0 0 12px">CPM by facility</h3>',
                 unsafe_allow_html=True,
