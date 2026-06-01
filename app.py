@@ -1569,8 +1569,10 @@ with tab_po:
             .sum()
             .unstack(fill_value=0)
         )
-        # Match the bar chart order: ascending overall_pct_wasted = bottom → top
-        pct_order = top_ing.sort_values("overall_pct_wasted")["ingredient_name"].tolist()
+        # Bar chart: categoryorder=total ascending → highest % at top.
+        # px.imshow puts row 0 at the top, so sort descending here so both charts
+        # have the same ingredient at the top and bottom.
+        pct_order = top_ing.sort_values("overall_pct_wasted", ascending=False)["ingredient_name"].tolist()
         pivot = pivot.loc[[name for name in pct_order if name in pivot.index]]
         # Convert YYYY-MM-DD column headers to "Mmm D" strings so Plotly
         # treats them as categories rather than UTC timestamps.
@@ -1591,7 +1593,6 @@ with tab_po:
             height=max(400, top_n_ing * 28),
             coloraxis_colorbar=dict(title="$", tickprefix="$", tickformat=","),
             xaxis_title=None,
-            yaxis_autorange="reversed",
         )
         st.plotly_chart(chart_base(fig_ing_heat), use_container_width=True)
 
