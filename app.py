@@ -1373,14 +1373,15 @@ with tab_po:
         rvw_win = rvw_win[rvw_win["facility"] == sel_facility]
 
     full_waste = po_df[po_df["full_po_wasted"]]
-    total_pos  = len(po_df)
     n_full     = len(full_waste)
     full_cost  = full_waste["waste_cost"].sum()
-    # Average the per-PO % from RVW (capped at 100) so 0-waste POs are included.
+    # Count and average from RVW so 0-waste POs are included.
     if not rvw_win.empty:
-        avg_pct = rvw_win["pct_wasted_rvw"].clip(upper=100).fillna(0).mean()
+        total_pos = rvw_win[["po_number", "ingredient_id"]].drop_duplicates().shape[0]
+        avg_pct   = rvw_win["pct_wasted_rvw"].clip(upper=100).fillna(0).mean()
     else:
-        avg_pct = po_df["pct_wasted"].mean() if total_pos else 0
+        total_pos = len(po_df)
+        avg_pct   = po_df["pct_wasted"].mean() if po_df.shape[0] else 0
 
     p1, p2, p3, p4 = st.columns(4)
     with p1:
@@ -1505,8 +1506,6 @@ with tab_po:
     ing_po = (
         po_df.groupby(["ingredient_name", "ingredient_id"])
         .agg(
-            avg_pct_wasted   = ("pct_wasted",    "mean"),
-            total_pos        = ("po_number",      "count"),
             fully_wasted_pos = ("full_po_wasted", "sum"),
             total_waste_cost = ("waste_cost",     "sum"),
             total_waste_qty  = ("waste_qty",      "sum"),
@@ -1514,9 +1513,6 @@ with tab_po:
         )
         .reset_index()
     )
-    ing_po["pct_pos_fully_wasted"] = (
-        ing_po["fully_wasted_pos"] / ing_po["total_pos"] * 100
-    ).fillna(0)
 
     # Use the already-filtered rvw_win (computed at top of tab) as source of truth.
     if not rvw_win.empty:
