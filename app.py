@@ -1353,11 +1353,34 @@ with tab_trends:
 with tab_po:
     po_df = build_po_analysis(f, rvw_df)
 
+    # Build date/facility-filtered RVW once; reused by KPI and ingredient chart.
+    def _nid(s):
+        try:
+            return str(int(float(str(s).strip())))
+        except (ValueError, TypeError):
+            return str(s).strip()
+
+    rvw_win = rvw_df.dropna(subset=["menu_ship_week"]).copy()
+    if selected_weeks is not None:
+        _sw = {w.date() if hasattr(w, "date") else w for w in selected_weeks}
+        rvw_win = rvw_win[rvw_win["menu_ship_week"].dt.date.isin(_sw)]
+    else:
+        rvw_win = rvw_win[
+            (rvw_win["menu_ship_week"].dt.date >= date_range[0]) &
+            (rvw_win["menu_ship_week"].dt.date <= date_range[1])
+        ]
+    if sel_facility != "All":
+        rvw_win = rvw_win[rvw_win["facility"] == sel_facility]
+
     full_waste = po_df[po_df["full_po_wasted"]]
     total_pos  = len(po_df)
     n_full     = len(full_waste)
     full_cost  = full_waste["waste_cost"].sum()
-    avg_pct    = po_df["pct_wasted"].mean() if total_pos else 0
+    # Average the per-PO % from RVW (capped at 100) so 0-waste POs are included.
+    if not rvw_win.empty:
+        avg_pct = rvw_win["pct_wasted_rvw"].clip(upper=100).fillna(0).mean()
+    else:
+        avg_pct = po_df["pct_wasted"].mean() if total_pos else 0
 
     p1, p2, p3, p4 = st.columns(4)
     with p1:
@@ -1495,37 +1518,13 @@ with tab_po:
         ing_po["fully_wasted_pos"] / ing_po["total_pos"] * 100
     ).fillna(0)
 
-    # Received_vs_Wasted has every PO line (including 0%-wasted ones absent from WMS).
-    # Filter it to the same window/facility as the sidebar and use it as the source
-    # of truth for received vs wasted quantities per ingredient.
-    rvw_win = rvw_df.dropna(subset=["menu_ship_week"]).copy()
-    if selected_weeks is not None:
-        _sw = {w.date() if hasattr(w, "date") else w for w in selected_weeks}
-        rvw_win = rvw_win[rvw_win["menu_ship_week"].dt.date.isin(_sw)]
-    else:
-        rvw_win = rvw_win[
-            (rvw_win["menu_ship_week"].dt.date >= date_range[0]) &
-            (rvw_win["menu_ship_week"].dt.date <= date_range[1])
-        ]
-    if sel_facility != "All":
-        rvw_win = rvw_win[rvw_win["facility"] == sel_facility]
-
+    # Use the already-filtered rvw_win (computed at top of tab) as source of truth.
     if not rvw_win.empty:
-        # Normalise ingredient_id to plain integer string before joining
-        def _nid(s):
-            try:
-                return str(int(float(str(s).strip())))
-            except (ValueError, TypeError):
-                return str(s).strip()
-
         ing_po["_idk"] = ing_po["ingredient_id"].apply(_nid)
-        rvw_win = rvw_win.copy()
-        rvw_win["_idk"] = rvw_win["ingredient_id"].apply(_nid)
-        rvw_win["_pct"] = rvw_win["pct_wasted_rvw"].clip(upper=100).fillna(0)
-        ing_rvw = (
-            rvw_win.groupby("_idk", as_index=False)
-            .agg(overall_pct_wasted=("_pct", "mean"))
-        )
+        _rw = rvw_win.copy()
+        _rw["_idk"] = _rw["ingredient_id"].apply(_nid)
+        _rw["_pct"] = _rw["pct_wasted_rvw"].clip(upper=100).fillna(0)
+        ing_rvw = _rw.groupby("_idk", as_index=False).agg(overall_pct_wasted=("_pct", "mean"))
         ing_po = ing_po.merge(ing_rvw[["_idk", "overall_pct_wasted"]], on="_idk", how="left")
         ing_po["overall_pct_wasted"] = ing_po["overall_pct_wasted"].fillna(
             (ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100)
@@ -1547,7 +1546,7 @@ with tab_po:
             top_ing.sort_values("overall_pct_wasted"),
             y="ingredient_name", x="overall_pct_wasted",
             orientation="h",
-            title=f"Top {top_n_ing} ingredients — % of qty wasted (YTD)",
+            title=f"Top {top_n_ing} ingredients — % of PO wasted",
             labels={"ingredient_name": "", "overall_pct_wasted": "% of Qty Wasted"},
             color="overall_pct_wasted",
             color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
@@ -1596,6 +1595,7 @@ with tab_po:
             height=max(400, top_n_ing * 28),
             coloraxis_colorbar=dict(title="$", tickprefix="$", tickformat=","),
             xaxis_title=None,
+            yaxis_autorange="reversed",
         )
         st.plotly_chart(chart_base(fig_ing_heat), use_container_width=True)
 
