@@ -702,43 +702,39 @@ with st.sidebar:
     week_labels    = [w.strftime("%b %d, %Y") for w in week_date_objs]
     week_label_map = {w.strftime("%b %d, %Y"): w for w in week_date_objs}
 
-    # All filter widgets live inside a form so the app only reruns on submit
-    with st.form(key="sidebar_filters", border=False):
-        st.markdown("**Menu Ship Week**")
-        preset = st.pills(
-            "Quick select",
-            ["YTD", "4W", "8W", "12W", "Pick"],
-            default="YTD",
+    st.markdown("**Menu Ship Week**")
+    preset = st.pills(
+        "Quick select",
+        ["YTD", "4W", "8W", "12W", "Pick"],
+        default="YTD",
+        label_visibility="collapsed",
+    )
+    if preset is None:
+        preset = "YTD"
+
+    # Multiselect only shown (and only meaningful) when Pick is active
+    if preset == "Pick":
+        chosen_labels = st.multiselect(
+            "Pick menu weeks",
+            options=week_labels,
+            default=[],
             label_visibility="collapsed",
+            placeholder="Choose one or more menu weeks…",
         )
-        if preset is None:
-            preset = "YTD"
+    else:
+        chosen_labels = []
 
-        # Multiselect only shown (and only meaningful) when Pick is active
-        if preset == "Pick":
-            chosen_labels = st.multiselect(
-                "Pick menu weeks",
-                options=week_labels,
-                default=[],
-                label_visibility="collapsed",
-                placeholder="Choose one or more menu weeks…",
-            )
-        else:
-            chosen_labels = []
+    st.divider()
+    facilities   = ["All"] + sorted(wms_df["facility"].dropna().unique())
+    sel_facility = st.selectbox("Facility", facilities)
 
-        st.divider()
-        facilities   = ["All"] + sorted(wms_df["facility"].dropna().unique())
-        sel_facility = st.selectbox("Facility", facilities)
+    reasons    = ["All"] + sorted(wms_df["waste_reason"].dropna().unique())
+    sel_reason = st.selectbox("Waste Reason", reasons)
 
-        reasons    = ["All"] + sorted(wms_df["waste_reason"].dropna().unique())
-        sel_reason = st.selectbox("Waste Reason", reasons)
+    rth_opts = ["All"] + sorted(wms_df["is_rth"].dropna().unique())
+    sel_rth  = st.selectbox("RTH / Non-RTH", rth_opts)
 
-        rth_opts = ["All"] + sorted(wms_df["is_rth"].dropna().unique())
-        sel_rth  = st.selectbox("RTH / Non-RTH", rth_opts)
-
-        st.form_submit_button("Apply Filters", use_container_width=True, type="primary")
-
-    # Derive the active date range from the (now stable) submitted values
+    # Derive the active date range
     selected_weeks = None
     if preset == "YTD":
         date_range = (fiscal_start, data_max)
