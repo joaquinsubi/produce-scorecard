@@ -576,6 +576,7 @@ def parse_rvw(raw: list) -> pd.DataFrame:
                3: "po_number", 5: "total_received", 6: "total_wasted", 7: "pct_wasted_rvw"}
     valid = {k: v for k, v in col_map.items() if k < df.shape[1]}
     df = df.rename(columns=valid)[list(valid.values())]
+    df["menu_ship_week"] = pd.to_datetime(df["menu_ship_week"], errors="coerce")
     df["po_number"]      = df["po_number"].astype(str).str.strip()
     df["ingredient_id"]  = df["ingredient_id"].astype(str).str.strip()
     for col in ["total_received", "total_wasted"]:
@@ -1479,7 +1480,7 @@ with tab_po:
     st.caption("One PO line = one PO × ingredient combination, aggregated across all lot IDs.")
 
     ing_po = (
-        po_df.groupby("ingredient_name")
+        po_df.groupby(["ingredient_name", "ingredient_id"])
         .agg(
             avg_pct_wasted   = ("pct_wasted",    "mean"),
             total_pos        = ("po_number",      "count"),
@@ -1493,9 +1494,50 @@ with tab_po:
     ing_po["pct_pos_fully_wasted"] = (
         ing_po["fully_wasted_pos"] / ing_po["total_pos"] * 100
     ).fillna(0)
-    ing_po["overall_pct_wasted"] = (
-        ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100
-    ).clip(upper=100).fillna(0)
+
+    # Received_vs_Wasted has every PO line (including 0%-wasted ones absent from WMS).
+    # Filter it to the same window/facility as the sidebar and use it as the source
+    # of truth for received vs wasted quantities per ingredient.
+    rvw_win = rvw_df.dropna(subset=["menu_ship_week"]).copy()
+    if selected_weeks is not None:
+        _sw = {w.date() if hasattr(w, "date") else w for w in selected_weeks}
+        rvw_win = rvw_win[rvw_win["menu_ship_week"].dt.date.isin(_sw)]
+    else:
+        rvw_win = rvw_win[
+            (rvw_win["menu_ship_week"].dt.date >= date_range[0]) &
+            (rvw_win["menu_ship_week"].dt.date <= date_range[1])
+        ]
+    if sel_facility != "All":
+        rvw_win = rvw_win[rvw_win["facility"] == sel_facility]
+
+    if not rvw_win.empty:
+        # Normalise ingredient_id to plain integer string before joining
+        def _nid(s):
+            try:
+                return str(int(float(str(s).strip())))
+            except (ValueError, TypeError):
+                return str(s).strip()
+
+        ing_po["_idk"] = ing_po["ingredient_id"].apply(_nid)
+        rvw_win = rvw_win.copy()
+        rvw_win["_idk"] = rvw_win["ingredient_id"].apply(_nid)
+        ing_rvw = (
+            rvw_win.groupby("_idk", as_index=False)
+            .agg(rvw_recv=("total_received", "sum"), rvw_wst=("total_wasted", "sum"))
+        )
+        ing_rvw["overall_pct_wasted"] = (
+            ing_rvw["rvw_wst"] / ing_rvw["rvw_recv"].replace(0, np.nan) * 100
+        ).clip(upper=100).fillna(0)
+        ing_po = ing_po.merge(ing_rvw[["_idk", "overall_pct_wasted"]], on="_idk", how="left")
+        ing_po["overall_pct_wasted"] = ing_po["overall_pct_wasted"].fillna(
+            (ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100)
+            .clip(upper=100).fillna(0)
+        )
+        ing_po.drop(columns=["_idk"], inplace=True)
+    else:
+        ing_po["overall_pct_wasted"] = (
+            ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100
+        ).clip(upper=100).fillna(0)
 
     top_n_ing = st.slider("Show top N ingredients", 10, 50, 20, key="po_ing_slider")
     top_ing   = ing_po.nlargest(top_n_ing, "overall_pct_wasted")
