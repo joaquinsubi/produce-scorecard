@@ -1483,7 +1483,7 @@ with tab_po:
     st.caption("One PO line = one PO × ingredient combination, aggregated across all lot IDs.")
 
     ing_po = (
-        po_df.groupby("ingredient_name")
+        po_df.groupby(["ingredient_name", "ingredient_id"])
         .agg(
             avg_pct_wasted   = ("pct_wasted",    "mean"),
             total_pos        = ("po_number",      "count"),
@@ -1497,9 +1497,57 @@ with tab_po:
     ing_po["pct_pos_fully_wasted"] = (
         ing_po["fully_wasted_pos"] / ing_po["total_pos"] * 100
     ).fillna(0)
-    ing_po["overall_pct_wasted"] = (
-        ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100
-    ).clip(upper=100).fillna(0)
+
+    # Compute overall_pct_wasted from RVW filtered to the same date window.
+    # WMS only contains waste events, so POs with 0% waste are absent from po_df
+    # and would falsely inflate the ingredient-level percentage. RVW has every
+    # received PO line regardless of whether any waste occurred.
+    if not rvw_df.empty:
+        rvw_f = rvw_df.copy()
+        rvw_f["menu_ship_week"] = pd.to_datetime(rvw_f["menu_ship_week"], errors="coerce")
+        if selected_weeks is not None:
+            _sw_dates = {w.date() if hasattr(w, "date") else w for w in selected_weeks}
+            rvw_f = rvw_f[rvw_f["menu_ship_week"].dt.date.isin(_sw_dates)]
+        else:
+            rvw_f = rvw_f[
+                (rvw_f["menu_ship_week"].dt.date >= date_range[0]) &
+                (rvw_f["menu_ship_week"].dt.date <= date_range[1])
+            ]
+        if sel_facility != "All":
+            rvw_f = rvw_f[rvw_f["facility"] == sel_facility]
+
+        if not rvw_f.empty:
+            # Normalize ingredient_id format before joining (handles "17407" vs "17407.0")
+            def _norm_id(s):
+                try:
+                    return str(int(float(str(s).strip())))
+                except (ValueError, TypeError):
+                    return str(s).strip()
+
+            ing_po["_id_key"] = ing_po["ingredient_id"].apply(_norm_id)
+            ing_rvw = rvw_f.copy()
+            ing_rvw["_id_key"] = ing_rvw["ingredient_id"].apply(_norm_id)
+            ing_rvw = (
+                ing_rvw.groupby("_id_key", as_index=False)
+                .agg(rvw_received=("total_received", "sum"), rvw_wasted=("total_wasted", "sum"))
+            )
+            ing_rvw["overall_pct_wasted"] = (
+                ing_rvw["rvw_wasted"] / ing_rvw["rvw_received"].replace(0, np.nan) * 100
+            ).clip(upper=100).fillna(0)
+            ing_po = ing_po.merge(ing_rvw[["_id_key", "overall_pct_wasted"]], on="_id_key", how="left")
+            ing_po["overall_pct_wasted"] = ing_po["overall_pct_wasted"].fillna(
+                (ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100)
+                .clip(upper=100).fillna(0)
+            )
+            ing_po.drop(columns=["_id_key"], inplace=True)
+        else:
+            ing_po["overall_pct_wasted"] = (
+                ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100
+            ).clip(upper=100).fillna(0)
+    else:
+        ing_po["overall_pct_wasted"] = (
+            ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100
+        ).clip(upper=100).fillna(0)
 
     top_n_ing = st.slider("Show top N ingredients", 10, 50, 20, key="po_ing_slider")
     top_ing   = ing_po.nlargest(top_n_ing, "overall_pct_wasted")
