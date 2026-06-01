@@ -609,9 +609,17 @@ def build_po_analysis(wms: pd.DataFrame, rvw: pd.DataFrame) -> pd.DataFrame:
 
     # Join Received_vs_Wasted for correct total quantities
     if not rvw.empty:
-        rvw_lookup = rvw[["po_number", "ingredient_id",
-                           "total_received", "total_wasted", "pct_wasted_rvw"]].drop_duplicates()
-        agg = agg.merge(rvw_lookup, on=["po_number", "ingredient_id"], how="left")
+        # Aggregate across all rows per PO+ingredient before joining — multiple rows
+        # can exist (e.g. one per facility) and drop_duplicates() would keep an arbitrary
+        # one, inflating pct_wasted when the 100% row sorts first.
+        rvw_agg = (
+            rvw.groupby(["po_number", "ingredient_id"], as_index=False)
+            .agg(total_received=("total_received", "sum"), total_wasted=("total_wasted", "sum"))
+        )
+        rvw_agg["pct_wasted_rvw"] = (
+            rvw_agg["total_wasted"] / rvw_agg["total_received"].replace(0, np.nan) * 100
+        ).clip(upper=100)
+        agg = agg.merge(rvw_agg, on=["po_number", "ingredient_id"], how="left")
         agg["received_qty"] = agg["total_received"].fillna(agg["wms_recv_qty"])
         agg["waste_qty"]    = agg["total_wasted"].fillna(agg["wms_waste_qty"])
         agg["pct_wasted"]   = agg["pct_wasted_rvw"].fillna(
@@ -1494,18 +1502,18 @@ with tab_po:
     ).clip(upper=100).fillna(0)
 
     top_n_ing = st.slider("Show top N ingredients", 10, 50, 20, key="po_ing_slider")
-    top_ing   = ing_po.nlargest(top_n_ing, "avg_pct_wasted")
+    top_ing   = ing_po.nlargest(top_n_ing, "overall_pct_wasted")
 
     ci1, ci2 = st.columns(2)
 
     with ci1:
         fig_ing_pct = px.bar(
-            top_ing.sort_values("avg_pct_wasted"),
-            y="ingredient_name", x="avg_pct_wasted",
+            top_ing.sort_values("overall_pct_wasted"),
+            y="ingredient_name", x="overall_pct_wasted",
             orientation="h",
-            title=f"Top {top_n_ing} ingredients — avg % of PO wasted",
-            labels={"ingredient_name": "", "avg_pct_wasted": "Avg % of PO Wasted"},
-            color="avg_pct_wasted",
+            title=f"Top {top_n_ing} ingredients — % of qty wasted (YTD)",
+            labels={"ingredient_name": "", "overall_pct_wasted": "% of Qty Wasted"},
+            color="overall_pct_wasted",
             color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
             text_auto=".1f",
         )
@@ -1530,8 +1538,8 @@ with tab_po:
             .sum()
             .unstack(fill_value=0)
         )
-        # Match the bar chart order: ascending avg_pct_wasted = bottom → top
-        pct_order = top_ing.sort_values("avg_pct_wasted")["ingredient_name"].tolist()
+        # Match the bar chart order: ascending overall_pct_wasted = bottom → top
+        pct_order = top_ing.sort_values("overall_pct_wasted")["ingredient_name"].tolist()
         pivot = pivot.loc[[name for name in pct_order if name in pivot.index]]
         # Convert YYYY-MM-DD column headers to "Mmm D" strings so Plotly
         # treats them as categories rather than UTC timestamps.
