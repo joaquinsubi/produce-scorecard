@@ -676,64 +676,78 @@ if wms_df.empty:
 
 with st.sidebar:
     st.markdown("### Produce Scorecard")
-    st.caption("All filters apply to every chart and KPI.")
+    st.caption("Adjust filters and press Apply.")
     st.divider()
 
-    st.markdown("**Menu Ship Week**")
+    # Pre-compute date anchors — don't depend on filter state
     data_min = wms_df["menu_ship_date"].dropna().min().date()
     data_max = wms_df["menu_ship_date"].dropna().max().date()
     today    = date.today()
-    jan_1    = date(today.year, 1, 1)
-
-    preset = st.pills(
-        "Quick select",
-        ["YTD", "4W", "8W", "12W", "Pick"],
-        default="YTD",
-        label_visibility="collapsed",
+    # Fiscal year starts Feb 1; if we're still in Jan, roll back to prior year
+    fiscal_start = (
+        date(today.year, 2, 1) if today.month >= 2
+        else date(today.year - 1, 2, 1)
     )
-    if preset is None:
-        preset = "YTD"
 
     wms_week_dates = set(wms_df["menu_ship_date"].dt.date.dropna().unique())
     week_date_objs = sorted([w.date() for w in menu_weeks if w.date() in wms_week_dates])
     week_labels    = [w.strftime("%b %d, %Y") for w in week_date_objs]
     week_label_map = {w.strftime("%b %d, %Y"): w for w in week_date_objs}
 
-    selected_weeks = None
+    # All filter widgets live inside a form so the app only reruns on submit
+    with st.form(key="sidebar_filters", border=False):
+        st.markdown("**Menu Ship Week**")
+        preset = st.pills(
+            "Quick select",
+            ["YTD", "4W", "8W", "12W", "Pick"],
+            default="YTD",
+            label_visibility="collapsed",
+        )
+        if preset is None:
+            preset = "YTD"
 
+        # Multiselect only shown (and only meaningful) when Pick is active
+        if preset == "Pick":
+            chosen_labels = st.multiselect(
+                "Pick menu weeks",
+                options=week_labels,
+                default=[],
+                label_visibility="collapsed",
+                placeholder="Choose one or more menu weeks…",
+            )
+        else:
+            chosen_labels = []
+
+        st.divider()
+        facilities   = ["All"] + sorted(wms_df["facility"].dropna().unique())
+        sel_facility = st.selectbox("Facility", facilities)
+
+        reasons    = ["All"] + sorted(wms_df["waste_reason"].dropna().unique())
+        sel_reason = st.selectbox("Waste Reason", reasons)
+
+        rth_opts = ["All"] + sorted(wms_df["is_rth"].dropna().unique())
+        sel_rth  = st.selectbox("RTH / Non-RTH", rth_opts)
+
+        st.form_submit_button("Apply Filters", use_container_width=True, type="primary")
+
+    # Derive the active date range from the (now stable) submitted values
+    selected_weeks = None
     if preset == "YTD":
-        date_range = (jan_1, data_max)
-        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
+        date_range = (fiscal_start, data_max)
     elif preset == "4W":
         date_range = (data_max - timedelta(weeks=4), data_max)
-        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
     elif preset == "8W":
         date_range = (data_max - timedelta(weeks=8), data_max)
-        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
     elif preset == "12W":
         date_range = (data_max - timedelta(weeks=12), data_max)
-        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
-    else:
-        date_range    = (data_min, data_max)
-        chosen_labels = st.multiselect(
-            "Pick menu weeks",
-            options=week_labels,
-            default=[],
-            label_visibility="collapsed",
-            placeholder="Choose one or more menu weeks…",
-        )
+    else:  # Pick
+        date_range     = (data_min, data_max)
         selected_weeks = [week_label_map[l] for l in chosen_labels]
 
-    st.divider()
-
-    facilities   = ["All"] + sorted(wms_df["facility"].dropna().unique())
-    sel_facility = st.selectbox("Facility", facilities)
-
-    reasons    = ["All"] + sorted(wms_df["waste_reason"].dropna().unique())
-    sel_reason = st.selectbox("Waste Reason", reasons)
-
-    rth_opts = ["All"] + sorted(wms_df["is_rth"].dropna().unique())
-    sel_rth  = st.selectbox("RTH / Non-RTH", rth_opts)
+    if preset != "Pick":
+        st.caption(f"{date_range[0].strftime('%b %d')} – {date_range[1].strftime('%b %d, %Y')}")
+    elif chosen_labels:
+        st.caption(f"{len(chosen_labels)} week{'s' if len(chosen_labels) != 1 else ''} selected")
 
     st.divider()
     if st.button("Refresh Data", use_container_width=True):
@@ -900,12 +914,17 @@ with tab_summary:
         ), unsafe_allow_html=True)
 
     with k3:
-        st.markdown(kpi_card(
-            "Top Waste Reason",
-            top_reason,
-            delta=f"{top_reason_pct:.1f}% of cost",
-            delta_positive=None,
-        ), unsafe_allow_html=True)
+        if not shorts_f.empty:
+            _n_wks = shorts_f["week"].nunique()
+            _avg   = len(shorts_f) / _n_wks if _n_wks > 0 else 0
+            st.markdown(kpi_card(
+                "Avg Shorts / Week",
+                f"{_avg:.1f}",
+                delta=f"{len(shorts_f):,} total produce shorts",
+                delta_positive=None,
+            ), unsafe_allow_html=True)
+        else:
+            st.markdown(kpi_card("Avg Shorts / Week", "—"), unsafe_allow_html=True)
 
     with k4:
         if total_case_cost > 0:
