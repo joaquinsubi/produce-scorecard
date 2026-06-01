@@ -1521,13 +1521,11 @@ with tab_po:
         ing_po["_idk"] = ing_po["ingredient_id"].apply(_nid)
         rvw_win = rvw_win.copy()
         rvw_win["_idk"] = rvw_win["ingredient_id"].apply(_nid)
+        rvw_win["_pct"] = rvw_win["pct_wasted_rvw"].clip(upper=100).fillna(0)
         ing_rvw = (
             rvw_win.groupby("_idk", as_index=False)
-            .agg(rvw_recv=("total_received", "sum"), rvw_wst=("total_wasted", "sum"))
+            .agg(overall_pct_wasted=("_pct", "mean"))
         )
-        ing_rvw["overall_pct_wasted"] = (
-            ing_rvw["rvw_wst"] / ing_rvw["rvw_recv"].replace(0, np.nan) * 100
-        ).clip(upper=100).fillna(0)
         ing_po = ing_po.merge(ing_rvw[["_idk", "overall_pct_wasted"]], on="_idk", how="left")
         ing_po["overall_pct_wasted"] = ing_po["overall_pct_wasted"].fillna(
             (ing_po["total_waste_qty"] / ing_po["total_received"].replace(0, np.nan) * 100)
