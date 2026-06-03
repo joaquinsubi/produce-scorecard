@@ -452,7 +452,8 @@ def load_raw():
     shorts_raw = book.worksheet("Shorts Logs").get_all_values()
     po_raw     = book.worksheet("Purchase Orders").get_all_values()
     rvw_raw    = book.worksheet("Received_vs_Wasted").get_all_values()
-    return wms_raw, meals_raw, menus_raw, shorts_raw, po_raw, rvw_raw
+    cars_raw   = book.worksheet("CARs").get_all_values()
+    return wms_raw, meals_raw, menus_raw, shorts_raw, po_raw, rvw_raw, cars_raw
 
 
 def parse_wms(raw: list) -> pd.DataFrame:
@@ -591,6 +592,45 @@ def parse_rvw(raw: list) -> pd.DataFrame:
     return df.dropna(subset=["po_number"])
 
 
+def parse_cars(raw: list) -> pd.DataFrame:
+    """Parse CARs sheet.
+    A=investigation_number, E=report_date, F=meal, G=ingredient_name_raw,
+    O=po_numbers, P=supplier, Q=ship_week, Z=ingredient_id,
+    AA=category (keep 'Produce' only), AB=facility (cleaned).
+    """
+    if len(raw) < 2:
+        return pd.DataFrame()
+    df = pd.DataFrame(raw[1:])
+    col_map = {
+        0:  "investigation_number",
+        4:  "report_date",
+        5:  "meal",
+        6:  "ingredient_name_raw",
+        14: "po_numbers",
+        15: "supplier",
+        16: "ship_week",
+        25: "ingredient_id",
+        26: "category",
+        27: "facility",
+    }
+    valid = {k: v for k, v in col_map.items() if k < df.shape[1]}
+    df = df.rename(columns=valid)[list(valid.values())]
+
+    # Keep Produce CARs only
+    if "category" in df.columns:
+        df = df[df["category"].astype(str).str.strip() == "Produce"].copy()
+
+    df["ship_week"]            = pd.to_datetime(df["ship_week"],   errors="coerce")
+    df["report_date"]          = pd.to_datetime(df["report_date"], errors="coerce")
+    df["ingredient_id"]        = df["ingredient_id"].astype(str).str.strip()
+    df["supplier"]             = df["supplier"].astype(str).str.strip()
+    df["facility"]             = df["facility"].astype(str).str.strip()
+    df["investigation_number"] = df["investigation_number"].astype(str).str.strip()
+    df["po_numbers"]           = df["po_numbers"].astype(str).str.strip()
+    df["meal"]                 = df["meal"].astype(str).str.strip()
+    return df.dropna(subset=["ship_week"])
+
+
 def build_po_analysis(wms: pd.DataFrame, rvw: pd.DataFrame) -> pd.DataFrame:
     """One row per PO-ingredient combination. Uses Received_vs_Wasted for
     correct total received/wasted quantities across all lot IDs."""
@@ -639,11 +679,21 @@ def build_po_analysis(wms: pd.DataFrame, rvw: pd.DataFrame) -> pd.DataFrame:
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
 
 try:
-    wms_raw, meals_raw, menus_raw, shorts_raw, po_raw, rvw_raw = load_raw()
+    wms_raw, meals_raw, menus_raw, shorts_raw, po_raw, rvw_raw, cars_raw = load_raw()
     wms_df    = parse_wms(wms_raw)
     meals_df  = parse_meals(meals_raw)
     shorts_df = parse_shorts(shorts_raw)
     rvw_df    = parse_rvw(rvw_raw)
+    cars_df   = parse_cars(cars_raw)
+    # Join ingredient names from WMS lookup; fall back to raw combined text from col G
+    if not cars_df.empty and not wms_df.empty:
+        _ing_lkp = wms_df[["ingredient_id", "ingredient_name"]].drop_duplicates("ingredient_id")
+        cars_df  = cars_df.merge(_ing_lkp, on="ingredient_id", how="left")
+        cars_df["ingredient_name"] = cars_df["ingredient_name"].fillna(
+            cars_df["ingredient_name_raw"]
+        )
+    elif not cars_df.empty:
+        cars_df["ingredient_name"] = cars_df["ingredient_name_raw"]
 
     # Parse Purchase Orders sheet: col A=PO#, col B=facility, col K=ship week, col N=case cost
     _po_rows = []
@@ -885,8 +935,8 @@ st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_summary, tab_shorts, tab_trends, tab_po, tab_table = st.tabs(
-    ["Summary", "Shorts Log", "Waste Trends", "Purchase Orders", "Detail Table"]
+tab_summary, tab_shorts, tab_trends, tab_po, tab_table, tab_cars = st.tabs(
+    ["Summary", "Shorts Log", "Waste Trends", "Purchase Orders", "Detail Table", "CARs"]
 )
 
 
@@ -1899,3 +1949,188 @@ with tab_table:
 
     csv = dt[existing].to_csv(index=False).encode("utf-8")
     st.download_button("Download as CSV", csv, "produce_waste_filtered.csv", "text/csv")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — CARs
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_cars:
+    if cars_df.empty:
+        st.info("No Produce CARs found. Check that the 'CARs' sheet is accessible and contains rows where Category = 'Produce'.")
+    else:
+        # ── Apply same date + facility filters as sidebar ─────────────────────
+        cars_f = cars_df.copy()
+        if selected_weeks is not None:
+            _sw = {w.date() if hasattr(w, "date") else w for w in selected_weeks}
+            cars_f = cars_f[cars_f["ship_week"].dt.date.isin(_sw)]
+        else:
+            cars_f = cars_f[
+                (cars_f["ship_week"].dt.date >= date_range[0]) &
+                (cars_f["ship_week"].dt.date <= date_range[1])
+            ]
+        if sel_facility != "All":
+            cars_f = cars_f[cars_f["facility"] == sel_facility]
+
+        if cars_f.empty:
+            st.info("No CARs match the current filters.")
+        else:
+            # ── KPI chips ─────────────────────────────────────────────────────
+            total_cars    = len(cars_f)
+            n_car_weeks   = cars_f["ship_week"].nunique()
+            cars_per_week = total_cars / n_car_weeks if n_car_weeks else 0
+            top_car_ing   = (
+                cars_f["ingredient_name"].dropna()
+                .replace("", pd.NA).dropna()
+                .mode()
+            )
+            top_car_ing   = top_car_ing.iloc[0] if not top_car_ing.empty else "—"
+            top_car_vend  = (
+                cars_f["supplier"].dropna()
+                .replace("", pd.NA).dropna()
+                .mode()
+            )
+            top_car_vend  = top_car_vend.iloc[0] if not top_car_vend.empty else "—"
+
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.markdown(kpi_card("Total CARs", f"{total_cars:,}",
+                    help_text="Produce CARs in the selected period"), unsafe_allow_html=True)
+            with k2:
+                st.markdown(kpi_card("CARs / Week", f"{cars_per_week:.1f}",
+                    help_text="Total CARs ÷ distinct ship weeks"), unsafe_allow_html=True)
+            with k3:
+                st.markdown(kpi_card("Most Affected Ingredient", top_car_ing), unsafe_allow_html=True)
+            with k4:
+                st.markdown(kpi_card("Most Affected Vendor", top_car_vend), unsafe_allow_html=True)
+
+            st.divider()
+
+            # ── CARs by facility over time ────────────────────────────────────
+            section_head("", "CARs by facility — weekly")
+            cars_f["_week"] = (
+                cars_f["ship_week"]
+                - pd.to_timedelta(cars_f["ship_week"].dt.dayofweek, unit="D")
+            ).dt.normalize().dt.strftime("%Y-%m-%d")
+
+            weekly_fac = (
+                cars_f.groupby(["_week", "facility"])
+                .size().reset_index(name="cars")
+            )
+            weekly_fac["week_label"] = (
+                pd.to_datetime(weekly_fac["_week"])
+                .dt.strftime("%b %d")
+                .str.replace(r" 0(\d)$", r" \1", regex=True)
+            )
+            _wk_order = (
+                weekly_fac.drop_duplicates("_week")
+                .sort_values("_week")["week_label"]
+                .tolist()
+            )
+
+            fig_cars_trend = px.bar(
+                weekly_fac,
+                x="week_label", y="cars",
+                color="facility",
+                barmode="stack",
+                title="CARs by facility — weekly",
+                labels={"week_label": "Ship Week", "cars": "CAR Count", "facility": "Facility"},
+                color_discrete_sequence=HC_PALETTE,
+                category_orders={"week_label": _wk_order},
+            )
+            fig_cars_trend.update_layout(
+                xaxis_type="category",
+                xaxis_tickangle=-35,
+                legend_title_text="Facility",
+                yaxis_title="CAR Count",
+            )
+            st.plotly_chart(chart_base(fig_cars_trend), use_container_width=True)
+
+            # ── Top ingredients & vendors ─────────────────────────────────────
+            section_head("", "Top ingredients & vendors by CAR count")
+            ca1, ca2 = st.columns(2)
+
+            with ca1:
+                top_ing_cars = (
+                    cars_f.groupby("ingredient_name")
+                    .size().reset_index(name="cars")
+                    .nlargest(15, "cars")
+                    .sort_values("cars")
+                )
+                fig_ing_cars = px.bar(
+                    top_ing_cars,
+                    y="ingredient_name", x="cars",
+                    orientation="h",
+                    title="Top 15 ingredients by CAR count",
+                    labels={"ingredient_name": "", "cars": "CAR Count"},
+                    color_discrete_sequence=[HC_MELON],
+                    text_auto=True,
+                )
+                fig_ing_cars.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    xaxis_title="CAR Count",
+                )
+                st.plotly_chart(chart_base(fig_ing_cars), use_container_width=True)
+
+            with ca2:
+                top_vend_cars = (
+                    cars_f.groupby("supplier")
+                    .size().reset_index(name="cars")
+                    .nlargest(15, "cars")
+                    .sort_values("cars")
+                )
+                fig_vend_cars = px.bar(
+                    top_vend_cars,
+                    y="supplier", x="cars",
+                    orientation="h",
+                    title="Top 15 vendors by CAR count",
+                    labels={"supplier": "", "cars": "CAR Count"},
+                    color_discrete_sequence=[HC_BLUEBERRY],
+                    text_auto=True,
+                )
+                fig_vend_cars.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    xaxis_title="CAR Count",
+                )
+                st.plotly_chart(chart_base(fig_vend_cars), use_container_width=True)
+
+            # ── Detail table ──────────────────────────────────────────────────
+            section_head("", "CAR detail")
+            tf1, tf2, tf3 = st.columns(3)
+            with tf1:
+                car_fac_opts = ["All"] + sorted(cars_f["facility"].dropna().unique())
+                car_fac_sel  = st.selectbox("Facility", car_fac_opts,
+                                            key="car_fac", label_visibility="collapsed")
+            with tf2:
+                car_ing_opts = ["All"] + sorted(cars_f["ingredient_name"].dropna().unique())
+                car_ing_sel  = st.selectbox("Ingredient", car_ing_opts,
+                                            key="car_ing", label_visibility="collapsed")
+            with tf3:
+                car_vend_opts = ["All"] + sorted(cars_f["supplier"].dropna().unique())
+                car_vend_sel  = st.selectbox("Vendor", car_vend_opts,
+                                             key="car_vend", label_visibility="collapsed")
+
+            car_tbl = cars_f.copy()
+            if car_fac_sel  != "All": car_tbl = car_tbl[car_tbl["facility"]        == car_fac_sel]
+            if car_ing_sel  != "All": car_tbl = car_tbl[car_tbl["ingredient_name"] == car_ing_sel]
+            if car_vend_sel != "All": car_tbl = car_tbl[car_tbl["supplier"]        == car_vend_sel]
+
+            st.caption(f"{len(car_tbl):,} CARs shown")
+            st.dataframe(
+                car_tbl[[
+                    "investigation_number", "ship_week", "report_date",
+                    "facility", "ingredient_name", "supplier", "po_numbers", "meal",
+                ]].sort_values("ship_week", ascending=False),
+                use_container_width=True,
+                hide_index=True,
+                height=500,
+                column_config={
+                    "investigation_number": st.column_config.TextColumn("CAR #"),
+                    "ship_week":            st.column_config.DateColumn("Ship Week",   format="MMM D, YYYY"),
+                    "report_date":          st.column_config.DateColumn("Report Date", format="MMM D, YYYY"),
+                    "facility":             st.column_config.TextColumn("Facility"),
+                    "ingredient_name":      st.column_config.TextColumn("Ingredient"),
+                    "supplier":             st.column_config.TextColumn("Vendor"),
+                    "po_numbers":           st.column_config.TextColumn("PO Numbers"),
+                    "meal":                 st.column_config.TextColumn("Meal"),
+                },
+            )
