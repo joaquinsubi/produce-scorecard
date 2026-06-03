@@ -2050,46 +2050,66 @@ with tab_cars:
             ca1, ca2 = st.columns(2)
 
             with ca1:
-                top_ing_cars = (
-                    cars_f.groupby("ingredient_name")
+                _top_ing_names = (
+                    cars_f.groupby("ingredient_name").size()
+                    .nlargest(15).index.tolist()
+                )
+                ing_by_fac = (
+                    cars_f[cars_f["ingredient_name"].isin(_top_ing_names)]
+                    .groupby(["ingredient_name", "facility"])
                     .size().reset_index(name="cars")
-                    .nlargest(15, "cars")
-                    .sort_values("cars")
+                )
+                _ing_order = (
+                    ing_by_fac.groupby("ingredient_name")["cars"]
+                    .sum().sort_values().index.tolist()
                 )
                 fig_ing_cars = px.bar(
-                    top_ing_cars,
+                    ing_by_fac,
                     y="ingredient_name", x="cars",
+                    color="facility",
                     orientation="h",
+                    barmode="stack",
                     title="Top 15 ingredients by CAR count",
-                    labels={"ingredient_name": "", "cars": "CAR Count"},
-                    color_discrete_sequence=[HC_MELON],
-                    text_auto=True,
+                    labels={"ingredient_name": "", "cars": "CAR Count", "facility": "Facility"},
+                    color_discrete_sequence=HC_PALETTE,
+                    category_orders={"ingredient_name": _ing_order},
                 )
                 fig_ing_cars.update_layout(
-                    yaxis={"categoryorder": "total ascending"},
+                    yaxis={"categoryorder": "array", "categoryarray": _ing_order},
                     xaxis_title="CAR Count",
+                    legend_title_text="Facility",
                 )
                 st.plotly_chart(chart_base(fig_ing_cars), use_container_width=True)
 
             with ca2:
-                top_vend_cars = (
-                    cars_f.groupby("supplier")
+                _top_vend_names = (
+                    cars_f.groupby("supplier").size()
+                    .nlargest(15).index.tolist()
+                )
+                vend_by_fac = (
+                    cars_f[cars_f["supplier"].isin(_top_vend_names)]
+                    .groupby(["supplier", "facility"])
                     .size().reset_index(name="cars")
-                    .nlargest(15, "cars")
-                    .sort_values("cars")
+                )
+                _vend_order = (
+                    vend_by_fac.groupby("supplier")["cars"]
+                    .sum().sort_values().index.tolist()
                 )
                 fig_vend_cars = px.bar(
-                    top_vend_cars,
+                    vend_by_fac,
                     y="supplier", x="cars",
+                    color="facility",
                     orientation="h",
+                    barmode="stack",
                     title="Top 15 vendors by CAR count",
-                    labels={"supplier": "", "cars": "CAR Count"},
-                    color_discrete_sequence=[HC_BLUEBERRY],
-                    text_auto=True,
+                    labels={"supplier": "", "cars": "CAR Count", "facility": "Facility"},
+                    color_discrete_sequence=HC_PALETTE,
+                    category_orders={"supplier": _vend_order},
                 )
                 fig_vend_cars.update_layout(
-                    yaxis={"categoryorder": "total ascending"},
+                    yaxis={"categoryorder": "array", "categoryarray": _vend_order},
                     xaxis_title="CAR Count",
+                    legend_title_text="Facility",
                 )
                 st.plotly_chart(chart_base(fig_vend_cars), use_container_width=True)
 
@@ -2098,16 +2118,13 @@ with tab_cars:
             tf1, tf2, tf3 = st.columns(3)
             with tf1:
                 car_fac_opts = ["All"] + sorted(cars_f["facility"].dropna().unique())
-                car_fac_sel  = st.selectbox("Facility", car_fac_opts,
-                                            key="car_fac", label_visibility="collapsed")
+                car_fac_sel  = st.selectbox("Facility", car_fac_opts, key="car_fac")
             with tf2:
                 car_ing_opts = ["All"] + sorted(cars_f["ingredient_name"].dropna().unique())
-                car_ing_sel  = st.selectbox("Ingredient", car_ing_opts,
-                                            key="car_ing", label_visibility="collapsed")
+                car_ing_sel  = st.selectbox("Ingredient", car_ing_opts, key="car_ing")
             with tf3:
                 car_vend_opts = ["All"] + sorted(cars_f["supplier"].dropna().unique())
-                car_vend_sel  = st.selectbox("Vendor", car_vend_opts,
-                                             key="car_vend", label_visibility="collapsed")
+                car_vend_sel  = st.selectbox("Supplier", car_vend_opts, key="car_vend")
 
             car_tbl = cars_f.copy()
             if car_fac_sel  != "All": car_tbl = car_tbl[car_tbl["facility"]        == car_fac_sel]
