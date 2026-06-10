@@ -933,10 +933,20 @@ st.markdown(
 st.divider()
 
 
+# ── HELPERS ───────────────────────────────────────────────────────────────────
+
+def _nid(s):
+    """Normalize ingredient_id to a canonical string for joins."""
+    try:
+        return str(int(float(str(s).strip())))
+    except (ValueError, TypeError):
+        return str(s).strip()
+
+
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
-tab_summary, tab_shorts, tab_trends, tab_po, tab_table, tab_cars = st.tabs(
-    ["Summary", "Shorts Log", "Waste Trends", "Purchase Orders", "Detail Table", "CARs"]
+tab_summary, tab_ingredient, tab_shorts, tab_trends, tab_po, tab_table, tab_cars = st.tabs(
+    ["Summary", "Ingredient Lookup", "Shorts Log", "Waste Trends", "Purchase Orders", "Detail Table", "CARs"]
 )
 
 
@@ -1128,6 +1138,342 @@ with tab_summary:
         height=360,
     )
     st.plotly_chart(chart_base(fig_sum_ing), use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — INGREDIENT LOOKUP
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_ingredient:
+
+    # Date + facility filtered WMS — no reason/RTH filter so all waste shows
+    ing_base = wms_df.copy()
+    if selected_weeks is not None:
+        ing_base = ing_base[ing_base["menu_ship_date"].dt.date.isin(selected_weeks)]
+    else:
+        ing_base = ing_base[
+            (ing_base["menu_ship_date"].dt.date >= date_range[0]) &
+            (ing_base["menu_ship_date"].dt.date <= date_range[1])
+        ]
+    if sel_facility != "All":
+        ing_base = ing_base[ing_base["facility"] == sel_facility]
+
+    ing_opts = (
+        ing_base[["ingredient_name", "ingredient_id"]]
+        .dropna(subset=["ingredient_name"])
+        .assign(ingredient_name=lambda d: d["ingredient_name"].str.strip())
+        .drop_duplicates("ingredient_name")
+        .sort_values("ingredient_name")
+    )
+
+    sc1, sc2 = st.columns([1, 3])
+    with sc1:
+        ing_search = st.text_input(
+            "Search",
+            placeholder="Name or ingredient ID…",
+            label_visibility="collapsed",
+            key="ing_lookup_search",
+        )
+
+    if ing_search:
+        _imask = (
+            ing_opts["ingredient_name"].str.lower().str.contains(ing_search.lower(), na=False) |
+            ing_opts["ingredient_id"].astype(str).str.lower().str.contains(ing_search.lower(), na=False)
+        )
+        ing_opts_f = ing_opts[_imask]
+    else:
+        ing_opts_f = ing_opts
+
+    if ing_opts_f.empty:
+        st.warning("No ingredients match your search in the current date/facility window.")
+    else:
+        with sc2:
+            sel_ing = st.selectbox(
+                "Ingredient",
+                ing_opts_f["ingredient_name"].tolist(),
+                label_visibility="collapsed",
+                key="ing_lookup_select",
+            )
+
+        ing_wms  = ing_base[ing_base["ingredient_name"] == sel_ing]
+        _iid     = ing_wms["ingredient_id"].dropna().mode()
+        ing_id   = _iid.iloc[0] if not _iid.empty else ""
+        _iuom    = ing_wms["uom"].dropna().mode()
+        ing_uom  = _iuom.iloc[0] if not _iuom.empty else ""
+
+        st.markdown(
+            f'<div style="margin:16px 0 24px">'
+            f'<div style="font-family:Karla,sans-serif;font-size:11px;font-weight:700;'
+            f'letter-spacing:0.14em;text-transform:uppercase;color:{HC_MUTED};margin-bottom:4px">'
+            f'ID: {ing_id}&nbsp;&nbsp;·&nbsp;&nbsp;UOM: {ing_uom}</div>'
+            f'<div style="font-family:\'Bree Serif\',Georgia,serif;font-size:28px;'
+            f'color:#1A1A1A">{sel_ing}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── KPIs ─────────────────────────────────────────────────────────────
+        total_ing_cost = ing_wms["waste_cost"].sum()
+
+        _poc = po_costs_df.copy()
+        if not _poc.empty:
+            if selected_weeks is not None:
+                _poc = _poc[_poc["menu_ship_week"].dt.date.isin(selected_weeks)]
+            else:
+                _poc = _poc[
+                    (_poc["menu_ship_week"].dt.date >= date_range[0]) &
+                    (_poc["menu_ship_week"].dt.date <= date_range[1])
+                ]
+            if sel_facility != "All":
+                _poc = _poc[_poc["facility"].str.lower() == sel_facility.lower()]
+            _poc = _poc[_poc["ingredient_id"].astype(str).str.strip() == str(ing_id).strip()]
+        ing_spend   = _poc["case_cost"].sum() if not _poc.empty else 0.0
+        ing_pct_wst = (total_ing_cost / ing_spend * 100) if ing_spend > 0 else np.nan
+
+        ing_po     = build_po_analysis(ing_wms, rvw_df)
+        avg_po_pct = ing_po["pct_wasted"].mean() if not ing_po.empty else np.nan
+        n_full_po  = int(ing_po["full_po_wasted"].sum()) if not ing_po.empty else 0
+
+        ing_shorts = (
+            shorts_f[shorts_f["shorted_ingredient"].str.lower() == sel_ing.lower()]
+            if not shorts_f.empty else pd.DataFrame()
+        )
+
+        ing_cars = pd.DataFrame()
+        if not cars_df.empty:
+            _nid_ing = _nid(ing_id)
+            ing_cars = cars_df[
+                (cars_df["ingredient_id"].apply(_nid) == _nid_ing) |
+                (cars_df["ingredient_name"].str.lower() == sel_ing.lower())
+            ].copy()
+            if selected_weeks is not None:
+                _sw2 = {w.date() if hasattr(w, "date") else w for w in selected_weeks}
+                ing_cars = ing_cars[ing_cars["ship_week"].dt.date.isin(_sw2)]
+            else:
+                ing_cars = ing_cars[
+                    (ing_cars["ship_week"].dt.date >= date_range[0]) &
+                    (ing_cars["ship_week"].dt.date <= date_range[1])
+                ]
+            if sel_facility != "All":
+                ing_cars = ing_cars[ing_cars["facility"] == sel_facility]
+
+        kc1, kc2, kc3, kc4, kc5 = st.columns(5)
+        with kc1:
+            st.markdown(kpi_card("Total Waste Cost", f"${total_ing_cost:,.0f}"), unsafe_allow_html=True)
+        with kc2:
+            st.markdown(kpi_card(
+                "Total Spend (POs)",
+                f"${ing_spend:,.0f}" if ing_spend > 0 else "—",
+                help_text="Total case cost from Purchase Orders sheet",
+            ), unsafe_allow_html=True)
+        with kc3:
+            st.markdown(kpi_card(
+                "% of Spend Wasted",
+                f"{ing_pct_wst:.1f}%" if not np.isnan(ing_pct_wst) else "—",
+                delta=f"${total_ing_cost:,.0f} waste / ${ing_spend:,.0f} purchased" if ing_spend > 0 else None,
+                delta_positive=None,
+                help_text="Total waste cost ÷ total case cost from Purchase Orders",
+            ), unsafe_allow_html=True)
+        with kc4:
+            st.markdown(kpi_card(
+                "Avg PO Waste %",
+                f"{avg_po_pct:.1f}%" if not np.isnan(avg_po_pct) else "—",
+                delta=f"{n_full_po} fully wasted PO line{'s' if n_full_po != 1 else ''}",
+                delta_positive=(n_full_po == 0),
+            ), unsafe_allow_html=True)
+        with kc5:
+            _sn = len(ing_shorts)
+            st.markdown(kpi_card(
+                "Total Shorts",
+                f"{_sn:,}",
+                delta=(
+                    f"{ing_shorts['facility'].nunique()} site{'s' if ing_shorts['facility'].nunique() != 1 else ''} affected"
+                    if _sn > 0 else None
+                ),
+                delta_positive=None,
+            ), unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── Waste by facility ─────────────────────────────────────────────────
+        section_head("", "Waste by facility")
+        wf1, wf2 = st.columns(2)
+
+        with wf1:
+            fac_ing_cost = (
+                ing_wms.groupby("facility")["waste_cost"]
+                .sum().reset_index().sort_values("waste_cost")
+            )
+            fig_ic = px.bar(
+                fac_ing_cost, y="facility", x="waste_cost",
+                orientation="h",
+                title="Waste cost by facility ($)",
+                labels={"facility": "", "waste_cost": "Waste Cost ($)"},
+                color="waste_cost",
+                color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+                text_auto="$.3s",
+            )
+            fig_ic.update_layout(
+                xaxis_tickprefix="$", coloraxis_showscale=False,
+                height=max(280, len(fac_ing_cost) * 52),
+            )
+            st.plotly_chart(chart_base(fig_ic), use_container_width=True)
+
+        with wf2:
+            fac_ing_qty = (
+                ing_wms.groupby("facility")["quantity"]
+                .sum().reset_index().sort_values("quantity")
+            )
+            fig_iq = px.bar(
+                fac_ing_qty, y="facility", x="quantity",
+                orientation="h",
+                title=f"Waste quantity by facility ({ing_uom})",
+                labels={"facility": "", "quantity": f"Qty ({ing_uom})"},
+                color="quantity",
+                color_continuous_scale=[[0, HC_GREEN], [0.5, HC_LEMON], [1, HC_MELON]],
+                text_auto=",.1f",
+            )
+            fig_iq.update_layout(
+                coloraxis_showscale=False,
+                height=max(280, len(fac_ing_qty) * 52),
+            )
+            st.plotly_chart(chart_base(fig_iq), use_container_width=True)
+
+        # ── Weekly trend + reason breakdown ───────────────────────────────────
+        section_head("", "Trends & breakdown")
+        wt1, wt2 = st.columns(2)
+
+        with wt1:
+            wk_ing = fmt_weeks(ing_wms.groupby("week")["waste_cost"].sum().reset_index())
+            fig_iw = px.line(
+                wk_ing, x="week", y="waste_cost",
+                title="Weekly waste cost",
+                labels={"week": "Week of", "waste_cost": "Waste Cost ($)"},
+                markers=True, color_discrete_sequence=[HC_MELON],
+            )
+            fig_iw.update_traces(
+                line_width=2,
+                marker=dict(size=7, color="#FFFFFF", line=dict(width=2, color=HC_MELON)),
+            )
+            fig_iw.update_layout(yaxis_tickprefix="$", xaxis_type="category")
+            st.plotly_chart(chart_base(fig_iw), use_container_width=True)
+
+        with wt2:
+            rsn_ing = (
+                ing_wms.groupby("waste_reason")["waste_cost"]
+                .sum().reset_index().sort_values("waste_cost", ascending=False)
+            )
+            fig_ir = px.bar(
+                rsn_ing, x="waste_reason", y="waste_cost",
+                title="Waste cost by reason",
+                labels={"waste_reason": "", "waste_cost": "Waste Cost ($)"},
+                color="waste_reason",
+                color_discrete_sequence=HC_PALETTE,
+                text_auto="$.3s",
+            )
+            fig_ir.update_layout(
+                yaxis_tickprefix="$", showlegend=False, xaxis_title=None,
+            )
+            st.plotly_chart(chart_base(fig_ir), use_container_width=True)
+
+        # ── PO Lines ──────────────────────────────────────────────────────────
+        if not ing_po.empty:
+            section_head("", "Purchase order lines")
+            po_disp = ing_po[[
+                "po_number", "facility", "menu_ship_date",
+                "received_qty", "waste_qty", "pct_wasted",
+                "waste_cost", "waste_reason", "n_lots", "full_po_wasted",
+            ]].sort_values("menu_ship_date", ascending=False).copy()
+            st.dataframe(
+                po_disp,
+                use_container_width=True,
+                hide_index=True,
+                height=min(500, 40 + len(po_disp) * 35),
+                column_config={
+                    "po_number":      st.column_config.TextColumn("PO Number"),
+                    "facility":       st.column_config.TextColumn("Facility"),
+                    "menu_ship_date": st.column_config.DateColumn("Menu week",    format="MMM D, YYYY"),
+                    "received_qty":   st.column_config.NumberColumn("Received",   format="%,.2f"),
+                    "waste_qty":      st.column_config.NumberColumn("Wasted",     format="%,.2f"),
+                    "pct_wasted":     st.column_config.ProgressColumn("% Wasted", min_value=0, max_value=100, format="%.1f%%"),
+                    "waste_cost":     st.column_config.NumberColumn("Waste cost", format="$%,.2f"),
+                    "waste_reason":   st.column_config.TextColumn("Primary reason"),
+                    "n_lots":         st.column_config.NumberColumn("Lots",       format="%d"),
+                    "full_po_wasted": st.column_config.CheckboxColumn("Fully wasted"),
+                },
+            )
+
+        # ── Shorts ────────────────────────────────────────────────────────────
+        if not ing_shorts.empty:
+            section_head("", "Shorts")
+            ss1, ss2 = st.columns(2)
+
+            with ss1:
+                wk_sht = fmt_weeks(ing_shorts.groupby("week").size().reset_index(name="shorts"))
+                fig_isw = px.bar(
+                    wk_sht, x="week", y="shorts",
+                    title="Weekly shorts",
+                    labels={"week": "Week of", "shorts": "Short count"},
+                    color_discrete_sequence=[HC_MELON],
+                )
+                fig_isw.update_layout(xaxis_type="category")
+                st.plotly_chart(chart_base(fig_isw), use_container_width=True)
+
+            with ss2:
+                rsn_sht = (
+                    ing_shorts.groupby("short_reason").size()
+                    .reset_index(name="shorts").sort_values("shorts", ascending=False)
+                )
+                fig_isr = px.bar(
+                    rsn_sht, x="short_reason", y="shorts",
+                    title="Shorts by reason",
+                    labels={"short_reason": "", "shorts": "Short count"},
+                    color="short_reason",
+                    color_discrete_sequence=HC_PALETTE,
+                    text_auto=True,
+                )
+                fig_isr.update_layout(showlegend=False, xaxis_title=None)
+                st.plotly_chart(chart_base(fig_isr), use_container_width=True)
+
+            sht_tbl = (
+                ing_shorts[["menu_ship_week", "facility", "short_reason", "brand"]]
+                .sort_values("menu_ship_week", ascending=False).copy()
+            )
+            sht_tbl["menu_ship_week"] = sht_tbl["menu_ship_week"].dt.date
+            st.dataframe(
+                sht_tbl,
+                use_container_width=True,
+                hide_index=True,
+                height=min(360, 40 + len(sht_tbl) * 35),
+                column_config={
+                    "menu_ship_week": st.column_config.DateColumn("Ship Week",    format="MMM D, YYYY"),
+                    "facility":       st.column_config.TextColumn("Facility"),
+                    "short_reason":   st.column_config.TextColumn("Reason Code"),
+                    "brand":          st.column_config.TextColumn("Vendor / Brand"),
+                },
+            )
+
+        # ── CARs ──────────────────────────────────────────────────────────────
+        if not ing_cars.empty:
+            section_head("", "Corrective action records (CARs)")
+            st.caption(f"{len(ing_cars):,} CARs for {sel_ing} in the selected period.")
+            st.dataframe(
+                ing_cars[[
+                    "investigation_number", "ship_week", "report_date",
+                    "facility", "supplier", "po_numbers", "meal",
+                ]].sort_values("ship_week", ascending=False),
+                use_container_width=True,
+                hide_index=True,
+                height=min(400, 40 + len(ing_cars) * 35),
+                column_config={
+                    "investigation_number": st.column_config.TextColumn("CAR #"),
+                    "ship_week":            st.column_config.DateColumn("Ship Week",   format="MMM D, YYYY"),
+                    "report_date":          st.column_config.DateColumn("Report Date", format="MMM D, YYYY"),
+                    "facility":             st.column_config.TextColumn("Facility"),
+                    "supplier":             st.column_config.TextColumn("Vendor"),
+                    "po_numbers":           st.column_config.TextColumn("PO Numbers"),
+                    "meal":                 st.column_config.TextColumn("Meal"),
+                },
+            )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1402,13 +1748,6 @@ with tab_trends:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_po:
     po_df = build_po_analysis(f, rvw_df)
-
-    # Build date/facility-filtered RVW once; reused by KPI and ingredient chart.
-    def _nid(s):
-        try:
-            return str(int(float(str(s).strip())))
-        except (ValueError, TypeError):
-            return str(s).strip()
 
     rvw_win = rvw_df.dropna(subset=["menu_ship_week"]).copy()
     if selected_weeks is not None:
