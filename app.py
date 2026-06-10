@@ -594,21 +594,21 @@ def parse_rvw(raw: list) -> pd.DataFrame:
 
 def parse_cars(raw: list) -> pd.DataFrame:
     """Parse CARs sheet.
-    A=investigation_number, E=report_date, F=meal, G=ingredient_name_raw,
-    O=po_numbers, P=supplier, Q=ship_week, Z=ingredient_id,
-    AA=category (keep 'Produce' only), AB=facility (cleaned).
+    D=report_date, E=meal, G=ingredient_name_raw,
+    N=po_numbers, O=supplier, P=ship_week, Y=investigation_number,
+    Z=ingredient_id, AA=category (keep 'Produce' only), AB=facility.
     """
     if len(raw) < 2:
         return pd.DataFrame()
     df = pd.DataFrame(raw[1:])
     col_map = {
-        0:  "investigation_number",
-        4:  "report_date",
-        5:  "meal",
+        3:  "report_date",
+        4:  "meal",
         6:  "ingredient_name_raw",
-        14: "po_numbers",
-        15: "supplier",
-        16: "ship_week",
+        13: "po_numbers",
+        14: "supplier",
+        15: "ship_week",
+        24: "investigation_number",
         25: "ingredient_id",
         26: "category",
         27: "facility",
@@ -618,7 +618,7 @@ def parse_cars(raw: list) -> pd.DataFrame:
 
     # Keep Produce CARs only
     if "category" in df.columns:
-        df = df[df["category"].astype(str).str.strip() == "Produce"].copy()
+        df = df[df["category"].astype(str).str.strip().str.lower() == "produce"].copy()
 
     df["ship_week"]            = pd.to_datetime(df["ship_week"],   errors="coerce")
     df["report_date"]          = pd.to_datetime(df["report_date"], errors="coerce")
