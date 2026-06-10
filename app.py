@@ -1165,40 +1165,29 @@ with tab_ingredient:
         .sort_values("ingredient_name")
     )
 
-    sc1, sc2 = st.columns([1, 3])
-    with sc1:
-        ing_search = st.text_input(
-            "Search",
-            placeholder="Name or ingredient ID…",
+    # Each option embeds both name and ID so Streamlit's built-in selectbox
+    # search filters on either — no separate text input needed.
+    ing_labels        = [
+        f"{row['ingredient_name']}  ·  ID: {_nid(str(row['ingredient_id']))}"
+        for _, row in ing_opts.iterrows()
+    ]
+    ing_label_to_name = dict(zip(ing_labels, ing_opts["ingredient_name"].tolist()))
+    ing_label_to_id   = dict(zip(ing_labels, ing_opts["ingredient_id"].tolist()))
+
+    if not ing_labels:
+        st.warning("No ingredients found in the current date/facility window.")
+    else:
+        sel_label = st.selectbox(
+            "Search ingredient by name or ID",
+            ing_labels,
             label_visibility="collapsed",
-            key="ing_lookup_search",
+            key="ing_lookup_select",
         )
-
-    if ing_search:
-        _imask = (
-            ing_opts["ingredient_name"].str.lower().str.contains(ing_search.lower(), na=False) |
-            ing_opts["ingredient_id"].astype(str).str.lower().str.contains(ing_search.lower(), na=False)
-        )
-        ing_opts_f = ing_opts[_imask]
-    else:
-        ing_opts_f = ing_opts
-
-    if ing_opts_f.empty:
-        st.warning("No ingredients match your search in the current date/facility window.")
-    else:
-        with sc2:
-            sel_ing = st.selectbox(
-                "Ingredient",
-                ing_opts_f["ingredient_name"].tolist(),
-                label_visibility="collapsed",
-                key="ing_lookup_select",
-            )
-
-        ing_wms  = ing_base[ing_base["ingredient_name"] == sel_ing]
-        _iid     = ing_wms["ingredient_id"].dropna().mode()
-        ing_id   = _iid.iloc[0] if not _iid.empty else ""
-        _iuom    = ing_wms["uom"].dropna().mode()
-        ing_uom  = _iuom.iloc[0] if not _iuom.empty else ""
+        sel_ing = ing_label_to_name[sel_label]
+        ing_id  = ing_label_to_id[sel_label]
+        ing_wms = ing_base[ing_base["ingredient_name"] == sel_ing]
+        _iuom   = ing_wms["uom"].dropna().mode()
+        ing_uom = _iuom.iloc[0] if not _iuom.empty else ""
 
         st.markdown(
             f'<div style="margin:16px 0 24px">'
