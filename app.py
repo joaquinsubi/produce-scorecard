@@ -1180,9 +1180,20 @@ with tab_ingredient:
         sel_label = st.selectbox(
             "Search ingredient by name or ID",
             ing_labels,
+            index=None,
+            placeholder="Type an ingredient name or ID…",
             label_visibility="collapsed",
             key="ing_lookup_select",
         )
+
+    if not ing_labels or sel_label is None:
+        st.markdown(
+            '<p style="font-family:Karla,sans-serif;font-size:14px;color:#7A7A7A;'
+            'margin-top:32px;text-align:center">'
+            'Click the field above and start typing to find an ingredient.</p>',
+            unsafe_allow_html=True,
+        )
+    else:
         sel_ing = ing_label_to_name[sel_label]
         ing_id  = ing_label_to_id[sel_label]
         ing_wms = ing_base[ing_base["ingredient_name"] == sel_ing]
