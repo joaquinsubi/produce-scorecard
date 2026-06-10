@@ -66,8 +66,8 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
 }
 .hc-section-head {
     border-top: 1px solid #E6E0D8;
-    padding-top: 16px;
-    margin-top: 16px;
+    padding-top: 20px;
+    margin-top: 20px;
     margin-bottom: 12px;
 }
 .hc-section-head__eyebrow {
@@ -83,7 +83,7 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
 }
 
 /* ── dividers ── */
-hr { border-color: #E6E0D8 !important; margin: 10px 0 !important; }
+hr { border-color: #E6E0D8 !important; margin: 16px 0 !important; }
 
 /* ── Plotly chart wrappers — card treatment ── */
 [data-testid="stPlotlyChart"] {
@@ -254,21 +254,8 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 }
 
 /* ── equal-height KPI card columns ── */
-[data-testid="stHorizontalBlock"] { align-items: stretch !important; }
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"],
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div,
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div {
-    display: flex !important;
-    flex-direction: column !important;
-    flex: 1 !important;
-    min-height: 0 !important;
-}
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] [data-testid="stMarkdownContainer"],
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] [data-testid="stMarkdownContainer"] > div {
-    flex: 1 !important;
-    display: flex !important;
-    flex-direction: column !important;
-}
+/* Cards use a fixed min-height so all chips in a row are the same size
+   without touching chart containers elsewhere on the page. */
 
 /* ── dark-mode compat: portal-rendered dropdowns escape the theme vars ── */
 [data-baseweb="popover"],
@@ -425,7 +412,7 @@ def kpi_card(label: str, value: str, delta: str = None,
     return (
         f'<div{title_attr} style="background:#FFFFFF;border:1px solid {HC_BORDER};border-radius:16px;'
         f'padding:22px 24px 20px;box-shadow:0 1px 3px rgba(11,53,90,0.06);'
-        f'min-height:140px;height:100%;box-sizing:border-box;'
+        f'height:160px;box-sizing:border-box;'
         f'display:flex;flex-direction:column;">'
         f'<div style="font-family:Karla,sans-serif;font-size:10.5px;font-weight:700;'
         f'letter-spacing:0.14em;text-transform:uppercase;color:{HC_MUTED};margin-bottom:10px">{label}</div>'
@@ -1006,8 +993,6 @@ with tab_summary:
         else:
             st.markdown(kpi_card("% of Cost Wasted", "—"), unsafe_allow_html=True)
 
-    st.divider()
-
     # ── Row 1: Shorts ───────────────────────────────────────────────────────────
     section_head("Shorts", "Shorts by ingredient & site")
     sc1, sc2 = st.columns(2)
@@ -1293,8 +1278,6 @@ with tab_ingredient:
                 ),
                 delta_positive=None,
             ), unsafe_allow_html=True)
-
-        st.divider()
 
         # ── Waste by facility ─────────────────────────────────────────────────
         section_head("", "Waste by facility")
@@ -1792,8 +1775,6 @@ with tab_po:
     with p4:
         st.markdown(kpi_card("Cost of Fully Wasted Lines", f"${full_cost:,.0f}"), unsafe_allow_html=True)
 
-    st.divider()
-
     if n_full > 0:
         section_head("Alert", "Fully wasted PO lines")
         st.caption(
@@ -2011,8 +1992,6 @@ with tab_shorts:
             st.markdown(kpi_card("Top Short Reason", top_short_rsn), unsafe_allow_html=True)
         with sk4:
             st.markdown(kpi_card("Top Vendor", top_vendor), unsafe_allow_html=True)
-
-        st.divider()
 
         # ── Row 1: top ingredients + reason breakdown ─────────────────────
         r1a, r1b = st.columns(2)
@@ -2343,8 +2322,6 @@ with tab_cars:
                 st.markdown(kpi_card("Most Affected Ingredient", top_car_ing), unsafe_allow_html=True)
             with k4:
                 st.markdown(kpi_card("Most Affected Vendor", top_car_vend), unsafe_allow_html=True)
-
-            st.divider()
 
             # ── CARs by facility over time ────────────────────────────────────
             section_head("", "CARs by facility — weekly")
