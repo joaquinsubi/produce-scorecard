@@ -66,9 +66,9 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
 }
 .hc-section-head {
     border-top: 1px solid #E6E0D8;
-    padding-top: 28px;
-    margin-top: 36px;
-    margin-bottom: 16px;
+    padding-top: 16px;
+    margin-top: 16px;
+    margin-bottom: 12px;
 }
 .hc-section-head__eyebrow {
     font-family: 'Karla',sans-serif;
@@ -83,7 +83,7 @@ html, body, [class*="css"] { font-family: 'Karla','Work Sans',system-ui,sans-ser
 }
 
 /* ── dividers ── */
-hr { border-color: #E6E0D8 !important; margin: 20px 0 !important; }
+hr { border-color: #E6E0D8 !important; margin: 10px 0 !important; }
 
 /* ── Plotly chart wrappers — card treatment ── */
 [data-testid="stPlotlyChart"] {
@@ -255,18 +255,19 @@ section[data-testid="stSidebar"] .stButton button:hover { background: #006D00 !i
 
 /* ── equal-height KPI card columns ── */
 [data-testid="stHorizontalBlock"] { align-items: stretch !important; }
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div {
-    height: 100% !important;
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"],
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div,
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div {
     display: flex !important;
     flex-direction: column !important;
+    flex: 1 !important;
+    min-height: 0 !important;
 }
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div[data-testid="stMarkdownContainer"] {
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] [data-testid="stMarkdownContainer"],
+[data-testid="stHorizontalBlock"] [data-testid="stColumn"] [data-testid="stMarkdownContainer"] > div {
     flex: 1 !important;
     display: flex !important;
     flex-direction: column !important;
-}
-[data-testid="stHorizontalBlock"] [data-testid="stColumn"] > div > div[data-testid="stMarkdownContainer"] > div {
-    height: 100% !important;
 }
 
 /* ── dark-mode compat: portal-rendered dropdowns escape the theme vars ── */
@@ -424,7 +425,8 @@ def kpi_card(label: str, value: str, delta: str = None,
     return (
         f'<div{title_attr} style="background:#FFFFFF;border:1px solid {HC_BORDER};border-radius:16px;'
         f'padding:22px 24px 20px;box-shadow:0 1px 3px rgba(11,53,90,0.06);'
-        f'min-height:140px;height:100%;box-sizing:border-box;">'
+        f'min-height:140px;height:100%;box-sizing:border-box;'
+        f'display:flex;flex-direction:column;">'
         f'<div style="font-family:Karla,sans-serif;font-size:10.5px;font-weight:700;'
         f'letter-spacing:0.14em;text-transform:uppercase;color:{HC_MUTED};margin-bottom:10px">{label}</div>'
         f'<div style="font-family:\'Bree Serif\',Georgia,serif;font-size:32px;line-height:1;'
