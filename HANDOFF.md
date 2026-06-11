@@ -21,6 +21,7 @@ An internal analytics dashboard for Home Chef's produce operations team. It trac
 **Scopes**: `["https://www.googleapis.com/auth/spreadsheets.readonly"]`
 **GitHub repo**: `https://github.com/joaquinsubi/produce-scorecard` (branch: `main`)
 **Deployed on**: Streamlit Community Cloud — auto-deploys on push to `main`
+**Local run**: `cd /Users/joaquinsubijana/produce-scorecard && streamlit run app.py`
 
 ---
 
@@ -73,9 +74,10 @@ st.set_page_config(
 
 ### Visual Treatment
 - All Plotly charts: white background, `#E6E0D8` 1px border, 16px border-radius, subtle box-shadow
-- KPI cards: white background, `#E6E0D8` 1px border, 16px border-radius, min-height 140px, padding 22px 24px 20px
+- KPI cards: white background, `#E6E0D8` 1px border, 16px border-radius, **fixed `height: 160px`** (this ensures all chips in a row are the same height — do NOT change to `min-height` or `height:100%` as that requires a fragile flex chain through Streamlit's DOM and breaks chart containers)
 - Sidebar: `#0B355A` background
 - Page max-width: 1480px
+- Section heads (`section_head()`): top border only — **do NOT add `st.divider()` before a `section_head()` call** as the combined spacing looks like a double break
 
 ---
 
@@ -99,10 +101,12 @@ FACILITY_MAP = {              # Applied only in Shorts Log parsing
 
 All sheets: header at row 0, data from row 1+. Column indices are **0-based**.
 
+**Important**: The CARs sheet has TWO header rows before actual data (row 0 = Google Sheets import metadata, row 1 = column letter labels). The parser uses `raw[1:]` which makes that label row the first DataFrame row — it gets filtered out by the category check and NaT drop, so actual data still parses correctly from row 2+.
+
 ---
 
 ### Sheet 1: `WMS-Logged YTD`
-The Waste Management System log. **Contains only waste events** — rows exist only when produce was logged as wasted. This is the critical architectural constraint: ingredients that were received but NOT wasted have zero rows here.
+The Waste Management System log. **Contains only waste events** — rows exist only when produce was logged as wasted.
 
 | Col Index | Field Name | Type | Notes |
 |---|---|---|---|
@@ -178,7 +182,7 @@ Used for total spend (case cost) to compute "% of cost wasted." Parsed via manua
 ---
 
 ### Sheet 6: `Received_vs_Wasted`
-**Source of truth for waste percentages.** Has a row for every PO line received, including POs where nothing was wasted. This is what makes ingredient-level waste % trustworthy — WMS alone would always show 100% because it only contains waste events.
+**Source of truth for waste percentages.** Has a row for every PO line received, including POs where nothing was wasted.
 
 | Col Index | Field Name | Type | Notes |
 |---|---|---|---|
@@ -190,27 +194,27 @@ Used for total spend (case cost) to compute "% of cost wasted." Parsed via manua
 | 6 | `total_wasted` | float | Same cleaning |
 | 7 | `pct_wasted_rvw` | float | Strip "%"; stored as 0–100 scale (e.g. "21%" → 21.0); can exceed 100 |
 
-**Critical**: Multiple rows can exist per `po_number + ingredient_id` (e.g., one per facility). Before joining to WMS, you MUST aggregate RVW by `(po_number, ingredient_id)` summing received and wasted. Do NOT `drop_duplicates()` — that picks an arbitrary row and can inflate percentages to 100%.
+**Critical**: Multiple rows can exist per `po_number + ingredient_id` (e.g., one per facility). Before joining to WMS, you MUST aggregate RVW by `(po_number, ingredient_id)` summing received and wasted. Do NOT `drop_duplicates()`.
 
 ---
 
 ### Sheet 7: `CARs`
-Corrective Action Records — customer complaints escalated to responsible vendors. Only Produce category rows are kept.
+Corrective Action Records. Only Produce category rows are kept. **Note: this sheet has TWO header rows before data.**
 
-| Col Index | Field Name | Type | Notes |
-|---|---|---|---|
-| 0 | `investigation_number` | string | CAR identifier |
-| 4 | `report_date` | datetime | Date customer reported the incident |
-| 5 | `meal` | string | Meal ID and name |
-| 6 | `ingredient_name_raw` | string | "Ingredient ID – Name" combined; fallback only |
-| 14 | `po_numbers` | string | One or multiple PO numbers (free text) |
-| 15 | `supplier` | string | Vendor / supplier name |
-| 16 | `ship_week` | datetime | Drop row if NaT |
-| 25 | `ingredient_id` | string | Clean numeric ingredient ID — use this for joins, not col 6 |
-| 26 | `category` | string | **Filter**: keep only `category == "Produce"` (exact, case-sensitive) |
-| 27 | `facility` | string | Cleaned facility name — use this, not col 8 (col I, uncleaned) |
+| Col Index | Col Letter | Field Name | Type | Notes |
+|---|---|---|---|---|
+| 2 | C | `report_date` | datetime | Date customer reported the incident |
+| 3 | D | `meal` | string | Meal ID and name |
+| 6 | G | `ingredient_name_raw` | string | Fallback ingredient name only |
+| 13 | N | `po_numbers` | string | One or multiple PO numbers (free text) |
+| 14 | O | `supplier` | string | Vendor / supplier name |
+| 15 | P | `ship_week` | datetime | **Drop row if NaT** — this is the primary date key |
+| 24 | Y | `investigation_number` | string | CAR identifier |
+| 25 | Z | `ingredient_id` | string | Clean numeric ingredient ID — use for joins |
+| 26 | AA | `category` | string | **Filter**: keep only `category.lower() == "produce"` (case-insensitive) |
+| 27 | AB | `facility` | string | Cleaned facility name |
 
-**Post-parse**: left-join `ingredient_id → ingredient_name` from WMS lookup. Fall back to `ingredient_name_raw` (col 6) if no WMS match.
+**Post-parse**: left-join `ingredient_id → ingredient_name` from WMS lookup. Fall back to `ingredient_name_raw` (col G) if no WMS match.
 
 ---
 
@@ -266,19 +270,17 @@ Step 5 — full_po_wasted = (pct_wasted >= 95)
 ```
 
 ### Ingredient-Level % Wasted (PO tab bar chart)
-Different from per-PO pct_wasted. For the ingredient bar chart:
 ```
 1. Filter RVW to the same date range AND facility as the sidebar → rvw_win
-2. Normalize ingredient_id: str(int(float(id))) when numeric (handles "17407.0" → "17407")
+2. Normalize ingredient_id via _nid() (handles "17407.0" → "17407")
 3. Group rvw_win by normalized ingredient_id
-4. For each row: cap pct_wasted_rvw at 100
+4. Cap pct_wasted_rvw at 100 per row
 5. overall_pct_wasted = mean(capped values) per ingredient
 ```
-This correctly includes POs where 0% was wasted, which WMS-only data never contains.
 
 ### Prior-Period Delta (Summary tab Total Waste Cost)
 ```python
-span       = date_range[1] - date_range[0]
+span        = date_range[1] - date_range[0]
 prior_start = date_range[0] - span
 prior_end   = date_range[0] - timedelta(days=1)
 prior_cost  = wms_df filtered to (prior_start, prior_end)["waste_cost"].sum()
@@ -289,7 +291,7 @@ delta_pct   = (current_cost - prior_cost) / prior_cost * 100
 
 ## Sidebar Filters
 
-No form wrapper — every widget change immediately reruns the app (no "Apply" button).
+No form wrapper — every widget change immediately reruns the app.
 
 ### Date Range
 ```python
@@ -309,17 +311,6 @@ Pills widget — options: `["YTD", "4W", "8W", "12W", "Pick"]`, default: `"YTD"`
 | 12W | `(data_max − 12 weeks, data_max)` |
 | Pick | Opens multiselect of individual menu weeks; `selected_weeks` = list of date objects |
 
-Filter application for WMS:
-```python
-if selected_weeks is not None:    # Pick mode
-    f = f[f["menu_ship_date"].dt.date.isin(selected_weeks)]
-else:
-    f = f[(f["menu_ship_date"].dt.date >= date_range[0]) &
-          (f["menu_ship_date"].dt.date <= date_range[1])]
-```
-
-Same pattern applied to `meals_df`, `shorts_df`, `rvw_df`, and `cars_df` in each tab.
-
 ### Other Filters
 | Widget | Options | Applied to |
 |---|---|---|
@@ -327,9 +318,10 @@ Same pattern applied to `meals_df`, `shorts_df`, `rvw_df`, and `cars_df` in each
 | Waste Reason | `["All"] + sorted(wms_df["waste_reason"].unique())` | `f` only |
 | RTH / Non-RTH | `["All"] + sorted(wms_df["is_rth"].unique())` | `f` only |
 
-### Outside Filters
-- **Refresh Data** button: `st.cache_data.clear()` + `st.rerun()` — forces a fresh pull from Sheets
-- Shows: "Last pull: MMM DD · HH:MM AM/PM"
+**Ingredient Lookup tab uses `ing_base`** — a separate filtered copy of WMS that applies only the date and facility filters (not reason or RTH), so all waste reasons are visible when looking up a specific ingredient.
+
+### Refresh Button
+`st.cache_data.clear()` + `st.rerun()` — forces a fresh pull from Sheets.
 
 ---
 
@@ -347,7 +339,7 @@ Applies Home Chef brand styling to any Plotly figure.
 
 ### `kpi_card(label, value, delta=None, delta_positive=None, help_text=None) → str`
 Returns an HTML string. Render with `st.markdown(kpi_card(...), unsafe_allow_html=True)` inside a column.
-- Card: white bg, `#E6E0D8` 1px border, 16px radius, min-height 140px
+- Card: white bg, `#E6E0D8` 1px border, 16px radius, **`height: 160px`** (fixed — not min-height), `display:flex; flex-direction:column`
 - Label: Karla 10.5px bold uppercase, `#7A7A7A`
 - Value: Bree Serif 32px, `#1A1A1A`
 - Delta badge colors:
@@ -356,22 +348,16 @@ Returns an HTML string. Render with `st.markdown(kpi_card(...), unsafe_allow_htm
   - `delta_positive=None` → `rgba(74,74,74,0.08)` bg, `#7A7A7A` text (neutral)
 
 ### `section_head(eyebrow, title) → None`
-Renders a ruled section divider via `st.markdown`. The `eyebrow` parameter is accepted for call-site compatibility but not rendered.
-- 1px `#E6E0D8` top border, 28px padding-top, 36px margin-top, 16px margin-bottom
+Renders a ruled section divider via `st.markdown`. The `eyebrow` parameter is accepted but not rendered.
+- 1px `#E6E0D8` top border, 20px padding-top, 20px margin-top, 12px margin-bottom
 - Title: Bree Serif 22px, `#1A1A1A`
+- **Do not call `st.divider()` immediately before `section_head()`** — the combined spacing reads as a double break.
 
 ### `fmt_weeks(df, col="week") → pd.DataFrame`
 Sorts df by the given column (expects `"YYYY-MM-DD"` strings), then reformats values to `"Mmm D"` display format, stripping leading zeros. **Overwrites the column in-place.**
 
-When you need both sortable and display values, create the label separately before calling:
-```python
-df["week_label"] = (pd.to_datetime(df["week"])
-    .dt.strftime("%b %d")
-    .str.replace(r" 0(\d)$", r" \1", regex=True))
-```
-
 ### `_nid(s) → str`
-Normalizes ingredient_id for reliable joins between sheets (Google Sheets may return numbers as `"17407.0"` in one sheet and `"17407"` in another):
+Normalizes ingredient_id for reliable joins (defined at module level, available to all tabs):
 ```python
 try:
     return str(int(float(str(s).strip())))
@@ -383,9 +369,17 @@ except (ValueError, TypeError):
 
 ## Tab Structure
 
+Tab order: **Summary → Ingredient Lookup → Shorts Log → Waste Trends → Purchase Orders → Detail Table → CARs**
+
+```python
+tab_summary, tab_ingredient, tab_shorts, tab_trends, tab_po, tab_table, tab_cars = st.tabs([...])
+```
+
+---
+
 ### Tab 0 — Summary
 
-**KPI Row (4 chips)**
+**KPI Row (4 chips)** — no `st.divider()` after this row
 
 | Chip | Formula |
 |---|---|
@@ -394,127 +388,109 @@ except (ValueError, TypeError):
 | Avg Shorts / Week | `len(shorts_f) / shorts_f["week"].nunique()` |
 | % of Cost Wasted | `total_waste_cost / po_costs_df_filtered["case_cost"].sum() * 100` |
 
-**Charts (top to bottom)**:
-1. Top 10 shorted ingredients (horizontal bar, HC_CREAM→HC_MELON) + Shorts by site (horizontal bar, HC_CREAM→HC_BLUEBERRY) — 2 col, 360px
-2. Waste cost by facility (horizontal bar) + CPM by facility (horizontal bar) — 2 col, 360px, HC_GREEN→HC_LEMON→HC_MELON gradient
-3. Top 10 ingredients by waste cost (horizontal bar, full width, HC_CREAM→HC_MELON) — 360px
+**Charts**: Top 10 shorted ingredients + Shorts by site (2 col) → Waste cost by facility + CPM by facility (2 col) → Top 10 ingredients by waste cost (full width)
 
 ---
 
-### Tab 1 — Shorts Log
+### Tab 1 — Ingredient Lookup
 
-**KPI Row (4 chips)**: Total Produce Shorts · Most Shorted Ingredient · Top Short Reason · Top Vendor
+A per-ingredient deep-dive. Uses `ing_base` (date + facility filtered, NOT reason/RTH filtered).
 
-**Charts**:
-1. Top N shorted ingredients (horizontal bar, slider 10–50 default 20)
-2. Short count by reason (vertical bar, HC_PALETTE discrete) — 2 col layout
-3. Weekly produce shorts (line chart, HC_MELON, xaxis_type="category")
-4. Short reason breakdown per site (heatmap, facility × reason, white→HC_LEMON→HC_MELON)
-5. **Ingredient deep dive** (collapsed expander):
-   - Selectbox: pick an ingredient
-   - 4 mini-KPIs: Total Shorts, Facilities Affected, Top Reason, Weeks Affected
-   - Weekly bar + by-facility bar + by-reason bar
-   - Grouped detail table (week, facility, reason, brand, count)
+**Search**: Single `st.selectbox` with `index=None, placeholder="Type an ingredient name or ID…"`. Each option is formatted as `"Ingredient Name  ·  ID: 12345"` so Streamlit's native type-to-filter works on both name and ID. Nothing renders until a selection is made.
 
----
+**KPI Row (5 chips)** — no `st.divider()` after this row
 
-### Tab 2 — Waste Trends
+| Chip | Source |
+|---|---|
+| Total Waste Cost | `ing_wms["waste_cost"].sum()` |
+| Total Spend (POs) | `po_costs_df` filtered by date + facility + ingredient_id |
+| % of Spend Wasted | `waste_cost / spend * 100` |
+| Avg PO Waste % | `mean(ing_po["pct_wasted"])` with fully-wasted count as delta |
+| Total Shorts | `len(ing_shorts)` with facilities-affected count as delta |
 
-**General** (expanded expander):
-1. Waste cost by facility (horizontal bar) + Waste cost by reason (vertical bar, note: negative = correction) — 2 col
-2. Weekly waste cost by facility (stacked bar, barmode="stack", xaxis_type="category", HC_PALETTE)
-3. Weekly CPM line (all facilities combined, HC_MELON, markers w/ white fill)
-4. CPM by facility (horizontal bar) + CPM summary table — 2 col
-5. CPM heatmap (facility × week, HC_GREEN→HC_LEMON→HC_MELON)
-
-**By Ingredient** (collapsed expander):
-1. Top N by waste cost (stacked horizontal bar, facility breakdown, HC_PALETTE, slider 10–50)
-2. Top N by total spend from PO sheet (stacked horizontal bar, same ingredient order + color map)
+**Sections** (each introduced by `section_head()`):
+1. Waste by facility — waste cost ($) + waste quantity (UOM) side by side
+2. Trends & breakdown — weekly waste cost line + waste cost by reason
+3. Purchase order lines — full PO table with received, wasted, % wasted (progress bar), fully-wasted checkbox
+4. Shorts — only rendered if `not ing_shorts.empty`: weekly bar + reason bar + detail table
+5. CARs — only rendered if `not ing_cars.empty`: detail table
 
 ---
 
-### Tab 3 — Purchase Orders
+### Tab 2 — Shorts Log
 
-**KPI Row (4 chips)**
+**KPI Row (4 chips)** — no `st.divider()` after this row: Total Produce Shorts · Most Shorted Ingredient · Top Short Reason · Top Vendor
+
+**Charts**: Top N shorted ingredients + Short count by reason (2 col) → Weekly produce shorts (line) → Reason breakdown per site (heatmap) → **Ingredient deep dive** (collapsed expander with 4 mini-KPIs, charts, and grouped table)
+
+---
+
+### Tab 3 — Waste Trends
+
+**General** (expanded expander): facility cost bar + reason bar → weekly stacked bar by facility → weekly CPM line → CPM by facility bar + CPM table → CPM heatmap
+
+**By Ingredient** (collapsed expander): Top N by waste cost (stacked bar, facility breakdown) + Total spend from PO sheet (same ingredient order)
+
+---
+
+### Tab 4 — Purchase Orders
+
+**KPI Row (4 chips)** — no `st.divider()` after this row
 
 | Chip | Source | Formula |
 |---|---|---|
-| Total PO Lines | `rvw_win` | Count unique (po_number, ingredient_id) combos |
+| Total PO Lines | `rvw_win` | Count unique (po_number, ingredient_id) |
 | Avg % of Line Wasted | `rvw_win` | `mean(clip(pct_wasted_rvw, 0, 100))` |
 | Fully Wasted Lines | `po_df` | Count where `pct_wasted >= 95%` |
-| Cost of Fully Wasted Lines | `po_df` | Sum of waste_cost where fully wasted |
+| Cost of Fully Wasted Lines | `po_df` | Sum waste_cost where fully wasted |
 
-**Alert section** (shown only when n_fully_wasted > 0):
-- 3 dropdowns: Facility, Ingredient, Reason
-- Table: po_number, facility, ingredient_name, menu_ship_date, waste_qty, received_qty, pct_wasted (progress bar), waste_cost, n_lots, waste_reason
+**Alert section** (only when n_fully_wasted > 0): 3 dropdowns + table
 
-**Charts**:
-1. Distribution of PO lines by % wasted (histogram, 20 bins, HC_GREEN; shaded zone 95–100% in HC_MELON 15% opacity labelled "Fully wasted zone")
-2. Top 15 PO lines by waste cost (horizontal bar; color: full_po_wasted=True → HC_MELON, False → HC_GREEN)
-
-**Ingredient section**:
-- Slider: Top N (10–50, default 20)
-- % of PO wasted bar (horizontal, HC_GREEN→HC_LEMON→HC_MELON gradient)
-- Waste cost by week heatmap (ingredient × week, white→HC_LEMON→HC_MELON)
-  - Row order: **descending** by overall_pct_wasted so highest-% ingredient is at top of both charts
+**Charts**: % wasted histogram + Top 15 PO lines by cost (2 col) → ingredient % wasted bar + waste cost heatmap
 
 ---
 
-### Tab 4 — Detail Table
+### Tab 5 — Detail Table
 
-Full-text search across ingredient_name, facility, waste_reason, waste_reason_detail.
-3 dropdown filters: Facility, Reason, UOM.
-
-Columns: created_date, facility, ingredient_name, uom, quantity, waste_reason, waste_reason_detail, menu_ship_date, waste_cost, is_rth
-Sorted by created_date descending. Height 560px. CSV download button.
+Full-text search + 3 dropdown filters (Facility, Reason, UOM). All WMS columns. CSV export.
 
 ---
 
-### Tab 5 — CARs
+### Tab 6 — CARs
 
-Filtered by sidebar date range + facility. Produce-only filter applied at parse time (col AA = "Produce").
+**KPI Row (4 chips)** — no `st.divider()` after this row: Total CARs · CARs/Week · Most Affected Ingredient · Most Affected Vendor
 
-**KPI Row (4 chips)**
-
-| Chip | Formula |
-|---|---|
-| Total CARs | `len(cars_f)` |
-| CARs / Week | `total_cars / cars_f["ship_week"].nunique()` |
-| Most Affected Ingredient | `mode(ingredient_name)` — drops blanks/NaN before mode |
-| Most Affected Vendor | `mode(supplier)` — drops blanks/NaN before mode |
-
-**Charts**:
-1. CARs by facility — weekly (stacked bar, barmode="stack", xaxis_tickangle=-35, HC_PALETTE)
-2. Top 15 ingredients by CAR count (stacked horizontal bar, facility breakdown, HC_PALETTE) + Top 15 vendors by CAR count (same) — 2 col
-3. CAR detail table — 3 labeled dropdowns (Facility, Ingredient, Supplier); columns: CAR #, Ship Week, Report Date, Facility, Ingredient, Vendor, PO Numbers, Meal; sorted by ship_week descending; height 500px
+**Charts**: Weekly stacked bar by facility → Top 15 ingredients + Top 15 vendors (2 col) → Detail table with 3 dropdowns
 
 ---
 
 ## Critical Data Architecture Notes
 
-1. **WMS = waste events only.** If an ingredient was received but not wasted, it has zero WMS rows. Using WMS alone to compute "% wasted" always gives 100% for any ingredient that appears — because by definition every row is a waste event.
+1. **WMS = waste events only.** Using WMS alone to compute "% wasted" always gives 100% — every row is a waste event by definition. Always use RVW for received quantities.
 
-2. **RVW is the source of truth for received vs. wasted quantities.** `Received_vs_Wasted` has a row for every PO received, including 0%-wasted POs. Always pull received/wasted quantities from RVW, not WMS.
+2. **RVW is the source of truth.** `Received_vs_Wasted` has a row for every PO received, including 0%-wasted POs.
 
-3. **Ingredient-level % = mean of capped per-PO percentages — not summed quantities.** A PO with wasted > received (data entry error, UOM mismatch) can show > 100% in the raw sheet. Cap each row at 100% before averaging. Do not sum raw received/wasted across all POs for an ingredient and then divide — this produces a global ratio that misrepresents the distribution.
-   - Correct: `mean(clip(pct_wasted_rvw[i], 0, 100) for i in all POs for ingredient)`
-   - Incorrect: `sum(total_wasted) / sum(total_received)` across POs
+3. **Multiple RVW rows per PO + ingredient.** Aggregate by `(po_number, ingredient_id)` before joining. Never `drop_duplicates()`.
 
-4. **Multiple RVW rows per PO + ingredient.** The same PO can ship to multiple facilities, producing one RVW row per facility. Aggregate by `(po_number, ingredient_id)` before joining to WMS. Using `drop_duplicates()` picks an arbitrary row and breaks percentages.
+4. **Percentage wasted always clipped to 100.** Data entry errors can produce wasted > received. Cap at 100% before any averaging or display.
 
-5. **WMS quantity and waste_cost are stored negative.** Negate both on parse. This means corrections (positive in the sheet) become negative after negation, which correctly reduces waste totals when summed.
+5. **WMS quantity and waste_cost are stored negative.** Negate both on parse. Corrections (positive in sheet) become negative after negation, correctly reducing waste totals.
 
-6. **Fiscal year starts Feb 1.** YTD = Feb 1 of current year to today. If current month is January, roll back to Feb 1 of the prior calendar year.
+6. **CARs category filter is case-insensitive.** The sheet stores "Produce" but use `.str.lower() == "produce"` to be resilient.
 
-7. **Week normalization is Monday-anchored.** Subtract `dayofweek` (0=Mon…6=Sun) to get the Monday of any week. Store as `"YYYY-MM-DD"` for sorting/grouping; format as `"Mmm D"` for chart axes.
+7. **CARs ship_week is column P (index 15).** The sheet has two header rows before data. If ship_week parses to all NaT, the `dropna` will empty the entire DataFrame — this is the failure mode if the column index is wrong.
 
-8. **Facility names normalized only in Shorts.** The Shorts sheet has inconsistent names ("chicago midway", "chicago", etc.) — apply `FACILITY_MAP` case-insensitively. All other sheets are expected to already have canonical names: Chicago, Skyview, San Bernardino, Baltimore.
+8. **Fiscal year starts Feb 1.** If current month is January, roll back to Feb 1 of prior year.
 
-9. **Ingredient IDs may be stored as floats in some sheets.** Google Sheets can return `"17407.0"` instead of `"17407"`. Normalize before joining: `str(int(float(id)))`.
+9. **Week normalization is Monday-anchored.** Subtract `dayofweek` (0=Mon) to get Monday of the week. Store as `"YYYY-MM-DD"`; format as `"Mmm D"` for display.
 
-10. **CARs ingredient name lookup:** CARs col 6 (G) has combined "ID – Name" text; col 25 (Z) has the clean numeric ingredient ID. Always use col 25 for the join key; fall back to col 6 text only if the WMS lookup fails.
+10. **Facility names normalized only in Shorts.** All other sheets use canonical names: Chicago, Skyview, San Bernardino, Baltimore.
 
-11. **`fmt_weeks()` overwrites the column.** If you need both a sort key and a display label, create the label column first, then sort on the original.
+11. **Ingredient IDs may be stored as floats.** Google Sheets can return `"17407.0"` instead of `"17407"`. Always normalize with `_nid()` before joining across sheets.
+
+12. **KPI card height must stay fixed at 160px.** Do not change to `min-height` or `height:100%` — those approaches require propagating flex through Streamlit's internal DOM wrappers, which also affects chart containers and causes charts to grow unboundedly on tab interaction.
+
+13. **Never put `st.divider()` immediately before `section_head()`.** The section head already draws a 1px top border. The combination creates a visually jarring double-line break.
 
 ---
 
@@ -522,6 +498,6 @@ Filtered by sidebar date range + facility. Produce-only filter applied at parse 
 
 - **Local dev**: reads credentials from `/Users/joaquinsubijana/Downloads/produce-scorecard-36234099db1a.json`
 - **Streamlit Cloud**: reads from `st.secrets["gcp_service_account"]` (service account dict)
-- **Password gate**: `check_password()` function; password stored in `st.secrets["app_password"]`; empty password allowed by default (effectively open when no secret is set)
-- **Cache**: `@st.cache_data` on `load_raw()` — "Refresh Data" button calls `st.cache_data.clear()` + `st.rerun()`
+- **Password gate**: `check_password()` — password stored in `st.secrets["app_password"]`; empty password = open
+- **Cache**: `@st.cache_data` on `load_raw()` with TTL 300s — "Refresh Data" button calls `st.cache_data.clear()` + `st.rerun()`
 - **Deploy**: `git add app.py && git commit -m "..." && git push` — Streamlit Cloud auto-deploys from `main`
